@@ -1,0 +1,24 @@
+volumes:
+  pg_test:
+
+services:
+  pg:
+    build:
+      context: ./postgres
+      dockerfile: postgres-custom.Dockerfile
+    environment:
+        POSTGRES_DB: app_db
+        POSTGRES_USER: app_admin
+        POSTGRES_PASSWORD: app_admin
+
+    healthcheck:
+      test: [ "CMD-SHELL", "nc -z localhost 5432" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+        - "5432:5432"
+    volumes:
+        - pg_test:/var/lib/postgresql/data
+
+
