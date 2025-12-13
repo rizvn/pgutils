@@ -1,0 +1,142 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/rizvn/panics"
+)
+
+type Consumer struct {
+	queueName         string
+	visibilityTimeout int
+	fetchCount        int
+	maxRoutines       chan bool
+	routinesInFlight  sync.WaitGroup
+	consumerCtx       context.Context
+	consumerCancel    context.CancelFunc
+}
+
+type Message struct {
+	MsgID      int64      `db:"msg_id"`
+	ReadCount  int        `db:"read_ct"`
+	EnqueuedAt *time.Time `db:"enqueued_at"`
+	ArchivedAt *time.Time `db:"archived_at"`
+	VT         *time.Time `db:"vt"`
+	Message    *string    `db:"message"`
+	Headers    *string    `db:"headers"`
+}
+
+func (r *Consumer) Init(queueName string, visibilityTimeoutSecs int, fetchCount int, maxRoutines int) {
+	r.queueName = queueName
+	r.visibilityTimeout = visibilityTimeoutSecs
+	r.fetchCount = fetchCount
+	r.maxRoutines = make(chan bool, maxRoutines)
+	r.consumerCtx, r.consumerCancel = context.WithCancel(context.Background())
+
+	// Create queue if not exists
+	r.createQueueIfNotExists()
+}
+
+func (r *Consumer) createQueueIfNotExists() {
+	conn := r.getConnection()
+	defer conn.Close(context.Background())
+	_, err := conn.Exec(context.Background(), fmt.Sprintf(`SELECT * FROM pgmq.create('%s')`, r.queueName))
+	panics.OnError(err, "failed to create queue")
+}
+
+func (r *Consumer) Shutdown() {
+	if r.consumerCtx != nil {
+		fmt.Println("Shutting down consumer...")
+		r.consumerCancel()
+	}
+}
+
+func (r *Consumer) start() {
+	// start consumer routine
+	go func() {
+		// connect for this consumer
+		conn := r.getConnection()
+		defer conn.Close(r.consumerCtx)
+
+		for {
+			select {
+			case <-r.consumerCtx.Done():
+				fmt.Println("Shutting down consumer...")
+				return
+
+			default:
+				fmt.Println("Polling for messages...")
+				rows, err := conn.Query(r.consumerCtx, fmt.Sprintf("SELECT * FROM pgmq.read_with_poll('%s', %d, %d)", r.queueName, r.visibilityTimeout, r.fetchCount))
+				panics.OnError(err, "failed to read messages")
+
+				msg := &Message{}
+				msg.MsgID = -1
+
+				// read message
+				for rows.Next() {
+					err := rows.Scan(&msg.MsgID, &msg.ReadCount, &msg.EnqueuedAt, &msg.VT, &msg.Message, &msg.Headers)
+					panics.OnError(err, "failed to scan row")
+				}
+
+				if msg.MsgID == -1 {
+					continue
+				}
+				go r.handleMessage(msg)
+			}
+		}
+	}()
+}
+
+func (r *Consumer) getConnection() *pgx.Conn {
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, "postgres://app_admin:app_admin@localhost:5432/app_db")
+	panics.OnError(err, "failed to connect to database")
+	return conn
+}
+
+func (r *Consumer) handleMessage(msg *Message) {
+	ctx, cancel := context.WithCancel(context.Background())
+	conn := r.getConnection()
+	r.routinesInFlight.Add(1)
+	defer conn.Close(ctx)
+	defer cancel()
+	defer r.routinesInFlight.Done()
+
+	fmt.Printf("Received message:  %v\n", msg)
+	go r.extendVisibilityTimeout(ctx, msg)
+
+	// sleep to simulate processing
+	time.Sleep(10 * time.Second)
+
+	fmt.Printf("Processed message ID: %d\n", msg.MsgID)
+	_, err := conn.Exec(ctx, fmt.Sprintf("SELECT * FROM pgmq.delete('%s',%d)", r.queueName, msg.MsgID))
+	fmt.Printf("Deleted message ID: %d\n", msg.MsgID)
+	panics.OnError(err, "failed to delete message")
+}
+
+func (r *Consumer) extendVisibilityTimeout(ctx context.Context, msg *Message) {
+	conn := r.getConnection()
+	defer conn.Close(ctx)
+
+	ticker := time.NewTicker(time.Duration(r.visibilityTimeout/2) * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		// when cancelled
+		case <-ctx.Done():
+			fmt.Printf("Stopping visibility timeout extension for message ID: %d\n", msg.MsgID)
+			return
+		case <-ticker.C:
+			_, err := conn.Exec(ctx, fmt.Sprintf("select * from pgmq.set_vt('%s', %d, %d)", r.queueName, msg.MsgID, r.visibilityTimeout))
+			fmt.Printf("Extending visibility timeout for message ID: %d\n", msg.MsgID)
+			if err != nil {
+				fmt.Printf("Failed to update visible time for message id=%d: %v\n", msg.MsgID, err)
+			}
+		}
+	}
+}
