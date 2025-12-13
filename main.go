@@ -18,6 +18,8 @@ type Consumer struct {
 	fetchCount       int
 	maxRoutines      chan bool
 	routinesInFlight sync.WaitGroup
+	consumerCtx      context.Context
+	consumerCancel   context.CancelFunc
 }
 
 func (r *Consumer) Init() {
@@ -26,24 +28,30 @@ func (r *Consumer) Init() {
 	r.fetchCount = 1
 	r.maxRoutines = make(chan bool, 10)
 
+	r.consumerCtx, r.consumerCancel = context.WithCancel(context.Background())
+
 	// Create queue if not exists
 	conn := r.getConnection()
 	defer conn.Close(context.Background())
 	_, err := conn.Exec(context.Background(), fmt.Sprintf(`SELECT * FROM pgmq.create('%s')`, r.queueName))
 	panics.OnError(err, "failed to create queue")
+
 }
 
-func (r *Consumer) start() {
-	ctx := context.Background()
+func (r *Consumer) Shutdown() {
+	if r.consumerCtx != nil {
+		fmt.Println("Shutting down consumer...")
+		r.consumerCancel()
+	}
+}
 
-	pubConn := r.getConnection()
-	defer pubConn.Close(ctx)
-
-	subConn := r.getConnection()
-	defer subConn.Close(ctx)
-
+func (r *Consumer) testPublisher() {
 	// start producer routine
-	go func(conn *pgx.Conn) {
+	go func() {
+		ctx := context.Background()
+		conn := r.getConnection()
+		defer conn.Close(ctx)
+
 		// producer function
 		ticker := time.NewTicker(3 * time.Second)
 
@@ -58,16 +66,24 @@ func (r *Consumer) start() {
 				fmt.Println("Produced a new message.")
 			}
 		}
-	}(pubConn)
+	}()
+}
 
+func (r *Consumer) start() {
 	// start consumer routine
-	go func(ctx context.Context, conn *pgx.Conn) {
+	go func() {
+		conn := r.getConnection()
+		defer conn.Close(r.consumerCtx)
+
 		for {
 			select {
+			case <-r.consumerCtx.Done():
+				fmt.Println("Shutting down consumer...")
+				return
 
 			default:
 				fmt.Println("Polling for messages...")
-				rows, err := conn.Query(ctx, fmt.Sprintf("SELECT * FROM pgmq.read_with_poll('%s', %d, %d)", r.queueName, r.hideForSecs, r.fetchCount))
+				rows, err := conn.Query(r.consumerCtx, fmt.Sprintf("SELECT * FROM pgmq.read_with_poll('%s', %d, %d)", r.queueName, r.hideForSecs, r.fetchCount))
 				panics.OnError(err, "failed to read messages")
 
 				var msgId int64
@@ -83,11 +99,8 @@ func (r *Consumer) start() {
 				if msgId == -1 {
 					continue
 				}
-
 				go r.handleMessage(msgId, msgPayload, r.queueName)
-
 			}
-
 		}
 	}()
 
