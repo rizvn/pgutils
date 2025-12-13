@@ -3,10 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/signal"
 	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rizvn/panics"
 )
 
@@ -21,6 +24,8 @@ type Consumer struct {
 	consumerCtx       context.Context
 	consumerCancel    context.CancelFunc
 	handlerFunc       HandlerFunc
+	dbPool            *pgxpool.Pool
+	RoutinesInFlight  sync.WaitGroup
 }
 
 type Message struct {
@@ -39,6 +44,10 @@ func (r *Consumer) Init(queueName string, visibilityTimeoutSecs int, fetchCount 
 	r.maxRoutines = make(chan bool, maxRoutines)
 	r.consumerCtx, r.consumerCancel = context.WithCancel(context.Background())
 	r.handlerFunc = handler
+	var err error
+	r.dbPool, err = pgxpool.New(context.Background(), "postgres://app_admin:app_admin@localhost:5432/app_db")
+	panics.OnError(err, "failed to create pgx pool")
+
 	// Create queue if not exists
 	r.createQueueIfNotExists()
 }
@@ -97,13 +106,25 @@ func (r *Consumer) start() {
 			}
 		}
 	}()
+
+	// listen for interrupt signal to shutdown consumer
+	go func() {
+		c := make(chan os.Signal, 1)
+		signal.Notify(c, os.Interrupt)
+		<-c
+		println("Received interrupt signal, shutting down consumer...")
+		r.consumerCancel()
+
+		println("Waiting for in-flight routines to complete...")
+		r.routinesInFlight.Wait()
+		println("All routines completed, exiting.")
+	}()
 }
 
 func (r *Consumer) getConnection() *pgx.Conn {
-	ctx := context.Background()
-	conn, err := pgx.Connect(ctx, "postgres://app_admin:app_admin@localhost:5432/app_db")
-	panics.OnError(err, "failed to connect to database")
-	return conn
+	conn, err := r.dbPool.Acquire(context.Background())
+	panics.OnError(err, "failed to acquire connection from pool")
+	return conn.Conn()
 }
 
 func (r *Consumer) handleMessage(consumerCtx context.Context, msg *Message) {
@@ -123,7 +144,7 @@ func (r *Consumer) handleMessage(consumerCtx context.Context, msg *Message) {
 	r.handlerFunc(handlerCtx, conn, msg)
 
 	fmt.Printf("Processed message ID: %d\n", msg.MsgID)
-	_, err := conn.Exec(handlerCtx, fmt.Sprintf("SELECT * FROM pgmq.delete('%s',%d)", r.queueName, msg.MsgID))
+	_, err := conn.Exec(context.Background(), fmt.Sprintf("SELECT * FROM pgmq.delete('%s',%d)", r.queueName, msg.MsgID))
 	fmt.Printf("Deleted message ID: %d\n", msg.MsgID)
 	panics.OnError(err, "failed to delete message")
 }
