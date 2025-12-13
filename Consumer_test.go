@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rizvn/panics"
 )
 
@@ -16,14 +17,42 @@ func TestConsumer(t *testing.T) {
 
 	consumer := &Consumer{}
 
+	dbPool, err := pgxpool.New(context.Background(), "postgres://app_admin:app_admin@localhost:5432/app_db")
+	panics.OnError(err, "failed to create pgx pool")
+
 	handler := func(ctx context.Context, conn *pgx.Conn, msg *Message) {
 		// sleep to simulate processing
 		time.Sleep(10 * time.Second)
 	}
 
-	consumer.Init("test_queue", 6, 1, 5, handler)
+	consumer.Init(dbPool, "test_queue", 10, 1, 10, handler)
 	consumer.start()
 
+	// Wait for SIGINT (Ctrl+C) to exit gracefully
+	sigCh := make(chan os.Signal, 1)
+
+	signal.Notify(sigCh, os.Interrupt)
+	<-sigCh
+	consumer.Shutdown()
+
+	//wait for all in-flight routines to complete, on shutdown
+	consumer.routinesInFlight.Wait()
+
+	fmt.Println("Received SIGINT, shutting down.")
+}
+
+func TestProducer(t *testing.T) {
+	consumer := &Consumer{}
+
+	dbPool, err := pgxpool.New(context.Background(), "postgres://app_admin:app_admin@localhost:5432/app_db")
+	panics.OnError(err, "failed to create pgx pool")
+
+	handler := func(ctx context.Context, conn *pgx.Conn, msg *Message) {
+		// sleep to simulate processing
+		time.Sleep(10 * time.Second)
+	}
+
+	consumer.Init(dbPool, "test_queue", 10, 1, 10, handler)
 	// start producer routine
 	go func() {
 		ctx := context.Background()
@@ -31,7 +60,7 @@ func TestConsumer(t *testing.T) {
 		defer conn.Close(ctx)
 
 		// producer function
-		ticker := time.NewTicker(3 * time.Second)
+		ticker := time.NewTicker(1 * time.Second)
 
 		for {
 			select {
@@ -53,8 +82,4 @@ func TestConsumer(t *testing.T) {
 	<-sigCh
 	consumer.Shutdown()
 
-	//wait for all in-flight routines to complete, on shutdown
-	consumer.routinesInFlight.Wait()
-
-	fmt.Println("Received SIGINT, shutting down.")
 }

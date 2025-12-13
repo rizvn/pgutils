@@ -37,7 +37,7 @@ type Message struct {
 	Headers    *string    `db:"headers"`
 }
 
-func (r *Consumer) Init(queueName string, visibilityTimeoutSecs int, fetchCount int, maxRoutines int, handler HandlerFunc) {
+func (r *Consumer) Init(dbPool *pgxpool.Pool, queueName string, visibilityTimeoutSecs int, fetchCount int, maxRoutines int, handler HandlerFunc) {
 	r.queueName = queueName
 	r.visibilityTimeout = visibilityTimeoutSecs
 	r.fetchCount = fetchCount
@@ -45,7 +45,7 @@ func (r *Consumer) Init(queueName string, visibilityTimeoutSecs int, fetchCount 
 	r.consumerCtx, r.consumerCancel = context.WithCancel(context.Background())
 	r.handlerFunc = handler
 	var err error
-	r.dbPool, err = pgxpool.New(context.Background(), "postgres://app_admin:app_admin@localhost:5432/app_db")
+	r.dbPool = dbPool
 	panics.OnError(err, "failed to create pgx pool")
 
 	// Create queue if not exists
@@ -139,7 +139,7 @@ func (r *Consumer) handleMessage(consumerCtx context.Context, msg *Message) {
 	defer func() { <-r.maxRoutines }()
 
 	fmt.Printf("Received message:  %v\n", msg)
-	go r.extendVisibilityTimeout(handlerCtx, msg)
+	//go r.extendVisibilityTimeout(handlerCtx, msg)
 
 	r.handlerFunc(handlerCtx, conn, msg)
 
