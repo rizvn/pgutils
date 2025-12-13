@@ -10,6 +10,8 @@ import (
 	"github.com/rizvn/panics"
 )
 
+type HandlerFunc func(ctx context.Context, conn *pgx.Conn, msg *Message)
+
 type Consumer struct {
 	queueName         string
 	visibilityTimeout int
@@ -18,25 +20,25 @@ type Consumer struct {
 	routinesInFlight  sync.WaitGroup
 	consumerCtx       context.Context
 	consumerCancel    context.CancelFunc
+	handlerFunc       HandlerFunc
 }
 
 type Message struct {
 	MsgID      int64      `db:"msg_id"`
 	ReadCount  int        `db:"read_ct"`
 	EnqueuedAt *time.Time `db:"enqueued_at"`
-	ArchivedAt *time.Time `db:"archived_at"`
 	VT         *time.Time `db:"vt"`
 	Message    *string    `db:"message"`
 	Headers    *string    `db:"headers"`
 }
 
-func (r *Consumer) Init(queueName string, visibilityTimeoutSecs int, fetchCount int, maxRoutines int) {
+func (r *Consumer) Init(queueName string, visibilityTimeoutSecs int, fetchCount int, maxRoutines int, handler HandlerFunc) {
 	r.queueName = queueName
 	r.visibilityTimeout = visibilityTimeoutSecs
 	r.fetchCount = fetchCount
 	r.maxRoutines = make(chan bool, maxRoutines)
 	r.consumerCtx, r.consumerCancel = context.WithCancel(context.Background())
-
+	r.handlerFunc = handler
 	// Create queue if not exists
 	r.createQueueIfNotExists()
 }
@@ -59,18 +61,20 @@ func (r *Consumer) start() {
 	// start consumer routine
 	go func() {
 		// connect for this consumer
-		conn := r.getConnection()
-		defer conn.Close(r.consumerCtx)
+		consumerConn := r.getConnection()
+		defer consumerConn.Close(r.consumerCtx)
 
 		for {
 			select {
+
+			// check for shutdown
 			case <-r.consumerCtx.Done():
 				fmt.Println("Shutting down consumer...")
 				return
 
 			default:
 				fmt.Println("Polling for messages...")
-				rows, err := conn.Query(r.consumerCtx, fmt.Sprintf("SELECT * FROM pgmq.read_with_poll('%s', %d, %d)", r.queueName, r.visibilityTimeout, r.fetchCount))
+				rows, err := consumerConn.Query(r.consumerCtx, fmt.Sprintf("SELECT * FROM pgmq.read_with_poll('%s', %d, %d)", r.queueName, r.visibilityTimeout, r.fetchCount))
 				panics.OnError(err, "failed to read messages")
 
 				msg := &Message{}
@@ -82,10 +86,14 @@ func (r *Consumer) start() {
 					panics.OnError(err, "failed to scan row")
 				}
 
+				// no message
 				if msg.MsgID == -1 {
 					continue
 				}
-				go r.handleMessage(msg)
+
+				// acquire routine slot
+				r.maxRoutines <- true
+				go r.handleMessage(r.consumerCtx, msg)
 			}
 		}
 	}()
@@ -98,22 +106,24 @@ func (r *Consumer) getConnection() *pgx.Conn {
 	return conn
 }
 
-func (r *Consumer) handleMessage(msg *Message) {
-	ctx, cancel := context.WithCancel(context.Background())
+func (r *Consumer) handleMessage(consumerCtx context.Context, msg *Message) {
+	handlerCtx, cancel := context.WithCancel(consumerCtx)
 	conn := r.getConnection()
 	r.routinesInFlight.Add(1)
-	defer conn.Close(ctx)
+	defer conn.Close(handlerCtx)
 	defer cancel()
 	defer r.routinesInFlight.Done()
 
-	fmt.Printf("Received message:  %v\n", msg)
-	go r.extendVisibilityTimeout(ctx, msg)
+	// release routine slot
+	defer func() { <-r.maxRoutines }()
 
-	// sleep to simulate processing
-	time.Sleep(10 * time.Second)
+	fmt.Printf("Received message:  %v\n", msg)
+	go r.extendVisibilityTimeout(handlerCtx, msg)
+
+	r.handlerFunc(handlerCtx, conn, msg)
 
 	fmt.Printf("Processed message ID: %d\n", msg.MsgID)
-	_, err := conn.Exec(ctx, fmt.Sprintf("SELECT * FROM pgmq.delete('%s',%d)", r.queueName, msg.MsgID))
+	_, err := conn.Exec(handlerCtx, fmt.Sprintf("SELECT * FROM pgmq.delete('%s',%d)", r.queueName, msg.MsgID))
 	fmt.Printf("Deleted message ID: %d\n", msg.MsgID)
 	panics.OnError(err, "failed to delete message")
 }

@@ -8,19 +8,26 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/rizvn/panics"
 )
 
 func TestConsumer(t *testing.T) {
 
-	q := &Consumer{}
-	q.Init("test_queue", 6, 1, 5)
-	q.start()
+	consumer := &Consumer{}
+
+	handler := func(ctx context.Context, conn *pgx.Conn, msg *Message) {
+		// sleep to simulate processing
+		time.Sleep(10 * time.Second)
+	}
+
+	consumer.Init("test_queue", 6, 1, 5, handler)
+	consumer.start()
 
 	// start producer routine
 	go func() {
 		ctx := context.Background()
-		conn := q.getConnection()
+		conn := consumer.getConnection()
 		defer conn.Close(ctx)
 
 		// producer function
@@ -32,7 +39,7 @@ func TestConsumer(t *testing.T) {
 				_, err := conn.Exec(context.Background(), fmt.Sprintf(`SELECT * from pgmq.send(
 									  queue_name  => '%s',
 									  msg         => '%s'
-									)`, q.queueName, `{"foo": "bar2"}`))
+									)`, consumer.queueName, `{"foo": "bar2"}`))
 				panics.OnError(err, "failed to send message")
 				fmt.Println("Produced a new message.")
 			}
@@ -41,11 +48,13 @@ func TestConsumer(t *testing.T) {
 
 	// Wait for SIGINT (Ctrl+C) to exit gracefully
 	sigCh := make(chan os.Signal, 1)
+
 	signal.Notify(sigCh, os.Interrupt)
 	<-sigCh
+	consumer.Shutdown()
 
 	//wait for all in-flight routines to complete, on shutdown
-	q.routinesInFlight.Wait()
+	consumer.routinesInFlight.Wait()
 
 	fmt.Println("Received SIGINT, shutting down.")
 }
