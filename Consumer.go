@@ -10,41 +10,38 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type HandlerFunc func(ctx context.Context, msg *PgmqMessage)
+type MessageHandlerFunc func(ctx context.Context, msg *PgmqMessage)
 
 type Consumer struct {
-	queueName         string
-	consumerCtx       context.Context
-	consumerCancel    context.CancelFunc
-	handlerFunc       HandlerFunc
-	dbPool            *pgxpool.Pool
-	RoutinesInflight  sync.WaitGroup
-	msgChan           chan *PgmqMessage
-	maxPollSecs       int
-	visibilityTimeout int
-	concurrentMsgs    int
+	QueueName          string             `required:"true"`
+	MessageHandler     MessageHandlerFunc `required:"true"`
+	MaxPollSecs        int                `required:"true"`
+	VisibilityTimeout  int                `required:"true"`
+	ConcurrentMsgs     int                `required:"true"`
+	ArchiveAfterHandle bool               `required:"true"`
+	DbPool             *pgxpool.Pool      `required:"true"`
+
+	//-- internal fields
+	msgChan          chan *PgmqMessage
+	consumerCtx      context.Context
+	routinesInflight sync.WaitGroup
+	consumerCancel   context.CancelFunc
 }
 
-func (r *Consumer) Init(dbPool *pgxpool.Pool, queueName string, concurrentMsgs, visibilityTimeout, maxPollSecs int, handler HandlerFunc) {
-	r.queueName = queueName
+func (r *Consumer) Init() {
 	r.consumerCtx, r.consumerCancel = context.WithCancel(context.Background())
-	r.handlerFunc = handler
-	r.dbPool = dbPool
-	r.maxPollSecs = maxPollSecs
-	r.visibilityTimeout = visibilityTimeout
-	r.concurrentMsgs = concurrentMsgs
 
 	// Create queue if not exists
 	r.createQueueIfNotExists()
 
-	r.RoutinesInflight = sync.WaitGroup{}
-	r.msgChan = make(chan *PgmqMessage, concurrentMsgs)
+	r.routinesInflight = sync.WaitGroup{}
+	r.msgChan = make(chan *PgmqMessage, r.ConcurrentMsgs)
 }
 
 func (r *Consumer) createQueueIfNotExists() {
 	conn := r.getConnection()
 	defer conn.Release()
-	_, err := conn.Exec(context.Background(), `SELECT * FROM pgmq.create($1)`, r.queueName)
+	_, err := conn.Exec(context.Background(), `SELECT * FROM pgmq.create($1)`, r.QueueName)
 
 	if err != nil {
 		panic("failed to create queue")
@@ -56,17 +53,17 @@ func (r *Consumer) Shutdown() {
 		fmt.Println("Shutting down consumer...")
 		r.consumerCancel()
 		log.Printf("Waiting for inflight routines to complete...")
-		r.RoutinesInflight.Wait()
+		r.routinesInflight.Wait()
 		fmt.Println("Consumer shut down complete.")
 	}
 }
 
-func (r *Consumer) start() {
+func (r *Consumer) Start() {
 
-	// start message handler
+	// Start message handler
 	go r.handleMessages()
 
-	// start consumer routine
+	// Start consumer routine
 	go func() {
 		// connect for this consumer
 		conn := r.getConnection()
@@ -89,7 +86,7 @@ func (r *Consumer) start() {
 					  qty        => $3,
 					  max_poll_seconds  => $4
 					);
-				`, r.queueName, r.visibilityTimeout, 1, r.maxPollSecs)
+				`, r.QueueName, r.VisibilityTimeout, 1, r.MaxPollSecs)
 
 				if err != nil {
 					panic("failed to read messages")
@@ -112,7 +109,7 @@ func (r *Consumer) start() {
 }
 
 func (r *Consumer) getConnection() *pgxpool.Conn {
-	conn, err := r.dbPool.Acquire(context.Background())
+	conn, err := r.DbPool.Acquire(context.Background())
 
 	if err != nil {
 		panic("failed to acquire connection from pool")
@@ -127,46 +124,81 @@ func (r *Consumer) handleMessages() {
 
 		// process message in a new goroutine
 		go func() {
-			r.RoutinesInflight.Add(1)
-			defer r.RoutinesInflight.Done()
+			r.routinesInflight.Add(1)
+			defer r.routinesInflight.Done()
 
-			ticker := time.NewTicker(time.Duration(r.visibilityTimeout/2) * time.Second)
+			ticker := time.NewTicker(time.Duration(r.VisibilityTimeout/2) * time.Second)
 			defer ticker.Stop()
 
-			go func() {
-				for {
-					select {
-					case <-ticker.C:
-						r.updateVisibilityTimeout(msg)
-					case <-r.consumerCtx.Done():
-						ticker.Stop()
-						return
-					}
-				}
-			}()
+			r.VisibilityExtender(*ticker, msg)
+			r.MessageHandler(context.Background(), msg)
 
-			r.handlerFunc(context.Background(), msg)
-			r.deleteMsg(msg)
+			if r.ArchiveAfterHandle {
+				r.ArchiveMessage(msg)
+			} else {
+				r.DeleteMessage(msg)
+			}
 		}()
 	}
 }
 
-func (r *Consumer) deleteMsg(msg *PgmqMessage) {
+func (r *Consumer) VisibilityExtender(ticker time.Ticker, msg *PgmqMessage) {
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				r.updateVisibilityTimeout(msg)
+			case <-r.consumerCtx.Done():
+				ticker.Stop()
+				return
+			}
+		}
+	}()
+}
+
+func (r *Consumer) DeleteMessage(msg *PgmqMessage) {
 	conn := r.getConnection()
 	defer conn.Release()
 	_, err := conn.Exec(context.Background(), `
 					SELECT * FROM pgmq.delete(
         				queue_name => $1,
         				msg_id     => $2
-              		);`, r.queueName, msg.MsgID)
+              		);`, r.QueueName, msg.MsgID)
 
 	if err != nil {
 		fmt.Printf("failed to delete message %d: %v\n", msg.MsgID, err)
 	}
 }
 
+func (r *Consumer) ArchiveMessage(msg *PgmqMessage) {
+	conn := r.getConnection()
+	defer conn.Release()
+	_, err := conn.Exec(context.Background(), `
+					SELECT * FROM pgmq.archive(
+        				queue_name => $1,
+        				msg_id     => $2
+              		);`, r.QueueName, msg.MsgID)
+
+	if err != nil {
+		fmt.Printf("failed to archive message %d: %v\n", msg.MsgID, err)
+	}
+}
+
+func (r *Consumer) PurgeQueue(msg *PgmqMessage) {
+	conn := r.getConnection()
+	defer conn.Release()
+	_, err := conn.Exec(context.Background(), `
+					SELECT * FROM pgmq.purge_queue(
+        				queue_name => $1,
+              		);`, r.QueueName)
+
+	if err != nil {
+		fmt.Printf("failed to archive message %d: %v\n", msg.MsgID, err)
+	}
+}
+
 func (r *Consumer) updateVisibilityTimeout(msg *PgmqMessage) {
-	fmt.Printf("Extending visibility timeout for message %d by %d secs\n", msg.MsgID, r.visibilityTimeout)
+	fmt.Printf("Extending visibility timeout for message %d by %d secs\n", msg.MsgID, r.VisibilityTimeout)
 	conn := r.getConnection()
 	defer conn.Release()
 	_, err := conn.Exec(context.Background(), `
@@ -174,7 +206,7 @@ func (r *Consumer) updateVisibilityTimeout(msg *PgmqMessage) {
 						queue_name => $1,
 						msg_id     => $2,
 						vt         => $3
-			  		);`, r.queueName, msg.MsgID, r.visibilityTimeout)
+			  		);`, r.QueueName, msg.MsgID, r.VisibilityTimeout)
 
 	if err != nil {
 		log.Printf("failed to update visibility timeout for message %d: %v\n", msg.MsgID, err)
