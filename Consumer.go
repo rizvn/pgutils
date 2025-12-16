@@ -127,11 +127,12 @@ func (r *Consumer) handleMessages() {
 			r.routinesInflight.Add(1)
 			defer r.routinesInflight.Done()
 
-			ticker := time.NewTicker(time.Duration(r.VisibilityTimeout/2) * time.Second)
-			defer ticker.Stop()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
-			r.VisibilityExtender(*ticker, msg)
+			r.visibilityExtender(ctx, msg)
 			r.MessageHandler(context.Background(), msg)
+			cancel()
 
 			if r.ArchiveAfterHandle {
 				r.ArchiveMessage(msg)
@@ -142,13 +143,16 @@ func (r *Consumer) handleMessages() {
 	}
 }
 
-func (r *Consumer) VisibilityExtender(ticker time.Ticker, msg *PgmqMessage) {
+// visibilityExtender periodically extends the visibility timeout of a message
+// whilst the message is being processed so other processes cannot read it
+func (r *Consumer) visibilityExtender(ctx context.Context, msg *PgmqMessage) {
+	ticker := time.NewTicker(time.Duration(r.VisibilityTimeout/2) * time.Second)
 	go func() {
 		for {
 			select {
 			case <-ticker.C:
 				r.updateVisibilityTimeout(msg)
-			case <-r.consumerCtx.Done():
+			case <-ctx.Done():
 				ticker.Stop()
 				return
 			}
