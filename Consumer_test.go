@@ -19,7 +19,7 @@ func TestConsumer(t *testing.T) {
 	if err != nil {
 		panic("failed to parse pgx config")
 	}
-	config.MaxConns = 10 // set your desired max connections
+	config.MaxConns = 20 // set your desired max connections
 	dbPool, err := pgxpool.NewWithConfig(context.Background(), config)
 	if err != nil {
 		panic("failed to create pgx pool")

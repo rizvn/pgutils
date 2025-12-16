@@ -22,6 +22,7 @@ type Consumer struct {
 	msgChan           chan *Message
 	maxPollSecs       int
 	visibilityTimeout int
+	concurrentMsgs    int
 }
 
 func (r *Consumer) Init(dbPool *pgxpool.Pool, queueName string, concurrentMsgs, visibilityTimeout, maxPollSecs int, handler HandlerFunc) {
@@ -31,6 +32,7 @@ func (r *Consumer) Init(dbPool *pgxpool.Pool, queueName string, concurrentMsgs, 
 	r.dbPool = dbPool
 	r.maxPollSecs = maxPollSecs
 	r.visibilityTimeout = visibilityTimeout
+	r.concurrentMsgs = concurrentMsgs
 
 	// Create queue if not exists
 	r.createQueueIfNotExists()
