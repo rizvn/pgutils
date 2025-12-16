@@ -39,7 +39,6 @@ func (r *Consumer) Init(dbPool *pgxpool.Pool, queueName string, concurrentMsgs, 
 
 	r.RoutinesInflight = sync.WaitGroup{}
 	r.msgChan = make(chan *PgmqMessage, concurrentMsgs)
-	go r.handleMessages()
 }
 
 func (r *Consumer) createQueueIfNotExists() {
@@ -65,7 +64,7 @@ func (r *Consumer) Shutdown() {
 func (r *Consumer) start() {
 
 	// start message handler
-	//go r.handleMessages()
+	go r.handleMessages()
 
 	// start consumer routine
 	go func() {
@@ -138,7 +137,7 @@ func (r *Consumer) handleMessages() {
 				for {
 					select {
 					case <-ticker.C:
-						r.updateVisbilityTimeout(msg)
+						r.updateVisibilityTimeout(msg)
 					case <-r.consumerCtx.Done():
 						ticker.Stop()
 						return
@@ -166,7 +165,7 @@ func (r *Consumer) deleteMsg(msg *PgmqMessage) {
 	}
 }
 
-func (r *Consumer) updateVisbilityTimeout(msg *PgmqMessage) {
+func (r *Consumer) updateVisibilityTimeout(msg *PgmqMessage) {
 	fmt.Printf("Extending visibility timeout for message %d by %d secs\n", msg.MsgID, r.visibilityTimeout)
 	conn := r.getConnection()
 	defer conn.Release()
