@@ -2,43 +2,56 @@ package pgmq
 
 import (
 	"context"
-	"fmt"
-	"os"
-	"os/signal"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rizvn/pgutils/testutil"
 )
 
 func TestProducer(t *testing.T) {
-	producer := &Producer{}
+	ctr, dsn := testutil.StartPgTestContainer()
+	defer func() { _ = ctr.Terminate(context.Background()) }()
 
-	dbPool, err := pgxpool.New(context.Background(), "postgres://app_admin:app_admin@localhost:5432/app_db")
+	dbPool, err := pgxpool.New(context.Background(), dsn)
+
 	if err != nil {
-		panic("failed to create pgx pool")
+		t.Fatalf("failed to create pgx pool: %v", err)
 	}
 
-	producer.Init(dbPool)
-	// Start producer routine
-	go func() {
+	conn, err := dbPool.Acquire(context.Background())
+	if err != nil {
+		t.Fatalf("failed to acquire connection: %v", err)
+	}
+	defer conn.Release()
 
-		// producer function
-		ticker := time.NewTicker(1 * time.Second)
+	_, err = conn.Exec(context.Background(), `SELECT *  FROM pgmq.create('test_queue')`)
+	if err != nil {
+		t.Fatalf("failed to create pgmq queue: %v", err)
+	}
 
-		for {
-			select {
-			case <-ticker.C:
-				fmt.Println("Producing message...")
-				producer.Produce("test_queue", `{"content": "Hello, World!"}`, "")
-			}
+	p := &Producer{}
+	p.DbPool = dbPool
+	p.Init()
+
+	p.Produce("test_queue", `{"content": "Hello, World!"}`, "{}")
+
+	row, err := conn.Query(context.Background(), `SELECT count(0) FROM pgmq.q_test_queue`)
+	if err != nil {
+		t.Fatalf("failed to query pgmq queue: %v", err)
+	}
+
+	defer row.Close()
+
+	var msgCount int
+	for row.Next() {
+		err = row.Scan(&msgCount)
+		if err != nil {
+			t.Fatalf("failed to scan message count: %v", err)
 		}
-	}()
+	}
 
-	// Wait for SIGINT (Ctrl+C) to exit gracefully
-	sigCh := make(chan os.Signal, 1)
-
-	signal.Notify(sigCh, os.Interrupt)
-	<-sigCh
+	if msgCount == 0 {
+		t.Errorf("Expected to have produced messages, but message count is 0")
+	}
 
 }

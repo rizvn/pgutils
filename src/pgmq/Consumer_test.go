@@ -2,19 +2,22 @@ package pgmq
 
 import (
 	"context"
-	"fmt"
-	"os"
-	"os/signal"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rizvn/pgutils/testutil"
 )
 
 func TestConsumer(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*1)
+	ctr, dsn := testutil.StartPgTestContainer()
+	defer func() { _ = ctr.Terminate(context.Background()) }()
+
 	c := &Consumer{}
 	p := &Producer{}
 
-	config, err := pgxpool.ParseConfig("postgres://app_admin:app_admin@localhost:5432/app_db")
+	config, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		panic("failed to parse pgx config")
 	}
@@ -24,24 +27,33 @@ func TestConsumer(t *testing.T) {
 		panic("failed to create pgx pool")
 	}
 
-	c.MessageHandler = func(ctx context.Context, msg *PgmqMessage) {
-		fmt.Printf("Processing message: %v\n", msg)
-		//time.Sleep(8 * time.Second) // Simulate processing time
-		fmt.Printf("Finished processing message: %v\n", msg)
-	}
+	var recvd *PgmqMessage = nil
 
+	// set up consumer
 	c.QueueName = "test_queue"
 	c.DbPool = dbPool
+	c.MessageHandler = func(ctx context.Context, msg *PgmqMessage) {
+		recvd = msg
+		cancel()
+	}
 
 	c.Init()
 	c.Start()
 
-	// Wait for SIGINT (Ctrl+C) to exit gracefully
-	sigCh := make(chan os.Signal, 1)
+	// set up producer
+	p.DbPool = dbPool
+	p.Init()
+	p.Produce("test_queue", `{"content": "Hello, Test!"}`, "{}")
 
-	signal.Notify(sigCh, os.Interrupt)
-	<-sigCh
-	c.ShutdownWitWait()
-
-	fmt.Println("Received SIGINT, shutting down.")
+	for {
+		select {
+		case <-ctx.Done():
+			if recvd == nil {
+				t.Errorf("Expected to receive a message, but none was received")
+			}
+			// shutdown consumer
+			c.ShutdownWithWait()
+			return
+		}
+	}
 }

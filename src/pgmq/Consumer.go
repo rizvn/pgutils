@@ -2,6 +2,7 @@ package pgmq
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -62,7 +63,7 @@ func (r *Consumer) createQueueIfNotExists() {
 	}
 }
 
-func (r *Consumer) ShutdownWitWait() {
+func (r *Consumer) ShutdownWithWait() {
 	if r.consumerCtx != nil {
 		log.Println("Shutting down consumer...")
 		r.consumerCancel()
@@ -103,7 +104,7 @@ func (r *Consumer) Start() {
 				`, r.QueueName, r.VisibilityTimeout, 1, r.MaxPollSecs)
 
 				if err != nil {
-					panic("failed to read messages")
+					panic(fmt.Sprintf("failed to read messages, %v", err))
 				}
 
 				msg := &PgmqMessage{}

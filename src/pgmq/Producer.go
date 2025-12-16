@@ -2,20 +2,23 @@ package pgmq
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Producer struct {
-	dbPool *pgxpool.Pool
+	DbPool *pgxpool.Pool
 }
 
-func (r *Producer) Init(dbPool *pgxpool.Pool) {
-	r.dbPool = dbPool
+func (r *Producer) Init() {
+	if r.DbPool == nil {
+		panic("DbPool is required")
+	}
 }
 
 func (r *Producer) Produce(queueName, message, headers string) {
-	conn, err := r.dbPool.Acquire(context.Background())
+	conn, err := r.DbPool.Acquire(context.Background())
 	if err != nil {
 		panic("failed to acquire connection")
 	}
@@ -32,6 +35,6 @@ func (r *Producer) Produce(queueName, message, headers string) {
 									)`, queueName, message, headers)
 
 	if err != nil {
-		panic("failed to send message")
+		panic(fmt.Sprintf("failed to send message, %s", err.Error()))
 	}
 }
