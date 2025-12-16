@@ -27,7 +27,7 @@ func TestConsumer(t *testing.T) {
 
 	handler := func(ctx context.Context, msg *Message) {
 		fmt.Printf("Processing message: %v\n", msg)
-		time.Sleep(8 * time.Second) // Simulate processing time
+		//time.Sleep(8 * time.Second) // Simulate processing time
 		fmt.Printf("Finished processing message: %v\n", msg)
 	}
 
