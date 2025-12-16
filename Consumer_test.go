@@ -30,10 +30,6 @@ func TestConsumer(t *testing.T) {
 	}
 
 	c.QueueName = "test_queue"
-	c.ConcurrentMsgs = 10
-	c.VisibilityTimeout = 10
-	c.MaxPollSecs = 10
-	c.ArchiveAfterHandle = false
 	c.DbPool = dbPool
 
 	c.Init()
@@ -44,7 +40,7 @@ func TestConsumer(t *testing.T) {
 
 	signal.Notify(sigCh, os.Interrupt)
 	<-sigCh
-	c.Shutdown()
+	c.ShutdownWitWait()
 
 	fmt.Println("Received SIGINT, shutting down.")
 }

@@ -12,13 +12,15 @@ import (
 type MessageHandlerFunc func(ctx context.Context, msg *PgmqMessage)
 
 type Consumer struct {
-	QueueName          string             `required:"true"`
-	MessageHandler     MessageHandlerFunc `required:"true"`
-	MaxPollSecs        int                `required:"true"`
-	VisibilityTimeout  int                `required:"true"`
-	ConcurrentMsgs     int                `required:"true"`
-	ArchiveAfterHandle bool               `required:"true"`
-	DbPool             *pgxpool.Pool      `required:"true"`
+	QueueName      string             `required:"true"`
+	MessageHandler MessageHandlerFunc `required:"true"`
+	DbPool         *pgxpool.Pool      `required:"true"`
+
+	//-- configurable fields with defaults
+	MaxPollSecs        int
+	VisibilityTimeout  int
+	ConcurrentMsgs     int
+	ArchiveAfterHandle bool
 
 	//-- internal fields
 	msgChan          chan *PgmqMessage
@@ -29,6 +31,19 @@ type Consumer struct {
 
 func (r *Consumer) Init() {
 	r.consumerCtx, r.consumerCancel = context.WithCancel(context.Background())
+
+	// Set defaults
+	if r.MaxPollSecs == 0 {
+		r.MaxPollSecs = 10
+	}
+
+	if r.VisibilityTimeout == 0 {
+		r.VisibilityTimeout = 10
+	}
+
+	if r.ConcurrentMsgs == 0 {
+		r.ConcurrentMsgs = 10
+	}
 
 	// Create queue if not exists
 	r.createQueueIfNotExists()
@@ -47,7 +62,7 @@ func (r *Consumer) createQueueIfNotExists() {
 	}
 }
 
-func (r *Consumer) Shutdown() {
+func (r *Consumer) ShutdownWitWait() {
 	if r.consumerCtx != nil {
 		log.Println("Shutting down consumer...")
 		r.consumerCancel()
