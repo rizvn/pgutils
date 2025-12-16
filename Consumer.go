@@ -79,7 +79,7 @@ func (r *Consumer) Start() {
 
 			default:
 				fmt.Println("Polling for messages...")
-				rows, err := conn.Query(r.consumerCtx, `
+				rows, err := conn.Query(context.Background(), `
 					SELECT * FROM pgmq.read_with_poll(
 					  queue_name => $1,
 					  vt         => $2,
