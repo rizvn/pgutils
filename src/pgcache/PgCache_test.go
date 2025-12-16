@@ -22,8 +22,8 @@ func TestPgCache(t *testing.T) {
 	}
 
 	pgCache := &pgcache.PgCache{
-		CacheTable: "test",
-		TTL:        600, // 10 minutes
+		CacheName: "test",
+		TTL:       600, // 10 minutes
 	}
 	pgCache.Init(dbPool)
 

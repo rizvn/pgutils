@@ -9,7 +9,7 @@ import (
 )
 
 type PgCache struct {
-	CacheTable string        `required:"true"`
+	CacheName  string        `required:"true"`
 	DbPool     *pgxpool.Pool `required:"true"`
 	TTL        int           `required:"true"`
 	cacheTable string
@@ -20,8 +20,8 @@ func (r *PgCache) Init(dbPool *pgxpool.Pool) {
 		panic("DbPool is required")
 	}
 
-	if r.CacheTable == "" {
-		panic("CacheTable is required")
+	if r.CacheName == "" {
+		panic("CacheName is required")
 	}
 
 	r.DbPool = dbPool
@@ -30,7 +30,7 @@ func (r *PgCache) Init(dbPool *pgxpool.Pool) {
 		r.TTL = 3600 // Default TTL of 1 hour
 	}
 
-	r.cacheTable = "c_" + r.CacheTable
+	r.cacheTable = "c_" + r.CacheName
 
 	r.createCacheTable()
 }
