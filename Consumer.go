@@ -3,65 +3,72 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
-	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/rizvn/panics"
 )
 
 type HandlerFunc func(ctx context.Context, msg *Message)
 
 type Consumer struct {
-	queueName        string
-	routinesInFlight sync.WaitGroup
-	consumerCtx      context.Context
-	consumerCancel   context.CancelFunc
-	handlerFunc      HandlerFunc
-	dbPool           *pgxpool.Pool
-	msgs             chan *Message
+	queueName         string
+	consumerCtx       context.Context
+	consumerCancel    context.CancelFunc
+	handlerFunc       HandlerFunc
+	dbPool            *pgxpool.Pool
+	RoutinesInflight  sync.WaitGroup
+	msgChan           chan *Message
+	maxPollSecs       int
+	visibilityTimeout int
 }
 
-func (r *Consumer) Init(dbPool *pgxpool.Pool, queueName string, concurrentMsgs int, handler HandlerFunc) {
+func (r *Consumer) Init(dbPool *pgxpool.Pool, queueName string, concurrentMsgs, visibilityTimeout, maxPollSecs int, handler HandlerFunc) {
 	r.queueName = queueName
 	r.consumerCtx, r.consumerCancel = context.WithCancel(context.Background())
 	r.handlerFunc = handler
-	var err error
 	r.dbPool = dbPool
-	panics.OnError(err, "failed to create pgx pool")
+	r.maxPollSecs = maxPollSecs
+	r.visibilityTimeout = visibilityTimeout
 
 	// Create queue if not exists
 	r.createQueueIfNotExists()
 
-	r.msgs = make(chan *Message, concurrentMsgs)
-
+	r.RoutinesInflight = sync.WaitGroup{}
+	r.msgChan = make(chan *Message, concurrentMsgs)
+	go r.handleMessages()
 }
 
 func (r *Consumer) createQueueIfNotExists() {
 	conn := r.getConnection()
-	defer conn.Close(context.Background())
-	_, err := conn.Exec(context.Background(), fmt.Sprintf(`SELECT * FROM pgmq.create('%s')`, r.queueName))
-	panics.OnError(err, "failed to create queue")
+	defer conn.Release()
+	_, err := conn.Exec(context.Background(), `SELECT * FROM pgmq.create($1)`, r.queueName)
+
+	if err != nil {
+		panic("failed to create queue")
+	}
 }
 
 func (r *Consumer) Shutdown() {
 	if r.consumerCtx != nil {
 		fmt.Println("Shutting down consumer...")
 		r.consumerCancel()
+		log.Printf("Waiting for inflight routines to complete...")
+		r.RoutinesInflight.Wait()
+		fmt.Println("Consumer shut down complete.")
 	}
 }
 
 func (r *Consumer) start() {
 
 	// start message handler
-	go r.handleMessages()
+	//go r.handleMessages()
 
 	// start consumer routine
 	go func() {
 		// connect for this consumer
-		consumerConn := r.getConnection()
-		defer consumerConn.Close(r.consumerCtx)
+		conn := r.getConnection()
+		defer conn.Release()
 
 		for {
 			select {
@@ -73,17 +80,17 @@ func (r *Consumer) start() {
 
 			default:
 				fmt.Println("Polling for messages...")
-				rows, err := consumerConn.Query(r.consumerCtx, fmt.Sprintf("SELECT * FROM pgmq.read('%s', 10, 1)", r.queueName))
+				rows, err := conn.Query(r.consumerCtx, `
+					SELECT * FROM pgmq.read_with_poll(
+					  queue_name => $1,
+					  vt         => $2,
+					  qty        => $3,
+					  max_poll_seconds  => $4
+					);
+				`, r.queueName, r.visibilityTimeout, 1, r.maxPollSecs)
 
-				if rows.CommandTag().RowsAffected() == 0 {
-					time.Sleep(1 * time.Second)
-				}
-
-				panics.OnError(err, "failed to read messages")
-
-				if rows.CommandTag().RowsAffected() == 0 {
-					rows.Close()
-					continue
+				if err != nil {
+					panic("failed to read messages")
 				}
 
 				msg := &Message{}
@@ -91,46 +98,67 @@ func (r *Consumer) start() {
 				// read message
 				for rows.Next() {
 					err := rows.Scan(&msg.MsgID, &msg.ReadCount, &msg.EnqueuedAt, &msg.VT, &msg.Message, &msg.Headers)
-					panics.OnError(err, "failed to scan row")
+					if err != nil {
+						panic("failed to scan row")
+					}
+					r.msgChan <- msg
 				}
-
-				r.msgs <- msg
 				rows.Close()
 			}
 		}
 	}()
 }
 
-func (r *Consumer) getConnection() *pgx.Conn {
+func (r *Consumer) getConnection() *pgxpool.Conn {
 	conn, err := r.dbPool.Acquire(context.Background())
-	panics.OnError(err, "failed to acquire connection from pool")
-	return conn.Conn()
+
+	if err != nil {
+		panic("failed to acquire connection from pool")
+	}
+	return conn
 }
 
 func (r *Consumer) handleMessages() {
-
 	for {
-		select {
-		case <-r.consumerCtx.Done():
-			return
+		// wait for message
+		msg := <-r.msgChan
 
-		case msg := <-r.msgs:
-			go func() {
-				// track in-flight routines
-				r.routinesInFlight.Add(1)
+		// process message in a new goroutine
+		go func() {
+			r.RoutinesInflight.Add(1)
+			defer r.RoutinesInflight.Done()
 
-				// remove from in-flight on completion
-				defer r.routinesInFlight.Done()
-				r.handlerFunc(context.Background(), msg)
+			r.handlerFunc(context.Background(), msg)
+			r.deleteMsg(msg)
+		}()
+	}
+}
 
-				conn := r.getConnection()
-				defer conn.Close(context.Background())
-				_, err := conn.Exec(context.Background(), fmt.Sprintf("SELECT * FROM pgmq.delete('%s', %d)", r.queueName, msg.MsgID))
-				if err != nil {
-					fmt.Printf("failed to delete message %d: %v\n", msg.MsgID, err)
-				}
+func (r *Consumer) deleteMsg(msg *Message) {
+	conn := r.getConnection()
+	defer conn.Release()
+	_, err := conn.Exec(context.Background(), `
+					SELECT * FROM pgmq.delete(
+        				queue_name => $1,
+        				msg_id     => $2
+              		);`, r.queueName, msg.MsgID)
 
-			}()
-		}
+	if err != nil {
+		fmt.Printf("failed to delete message %d: %v\n", msg.MsgID, err)
+	}
+}
+
+func (r *Consumer) updateVisbilityTimeout(msg *Message) {
+	conn := r.getConnection()
+	defer conn.Release()
+	_, err := conn.Exec(context.Background(), `
+					SELECT * FROM pgmq.update_vt(
+						queue_name => $1,
+						msg_id     => $2,
+						vt         => $3
+			  		);`, r.queueName, msg.MsgID, r.visibilityTimeout)
+
+	if err != nil {
+		log.Printf("failed to update visibility timeout for message %d: %v\n", msg.MsgID, err)
 	}
 }

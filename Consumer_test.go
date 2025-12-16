@@ -14,14 +14,22 @@ import (
 
 func TestConsumer(t *testing.T) {
 	consumer := &Consumer{}
-	dbPool, err := pgxpool.New(context.Background(), "postgres://app_admin:app_admin@localhost:5432/app_db")
-	panics.OnError(err, "failed to create pgx pool")
+
+	config, err := pgxpool.ParseConfig("postgres://app_admin:app_admin@localhost:5432/app_db")
+	if err != nil {
+		panic("failed to parse pgx config")
+	}
+	config.MaxConns = 10 // set your desired max connections
+	dbPool, err := pgxpool.NewWithConfig(context.Background(), config)
+	if err != nil {
+		panic("failed to create pgx pool")
+	}
 
 	handler := func(ctx context.Context, msg *Message) {
 		fmt.Printf("Processing message: %v\n", msg)
 	}
 
-	consumer.Init(dbPool, "test_queue", 10, handler)
+	consumer.Init(dbPool, "test_queue", 10, 5, 5, handler)
 	consumer.start()
 
 	// Wait for SIGINT (Ctrl+C) to exit gracefully
@@ -30,9 +38,6 @@ func TestConsumer(t *testing.T) {
 	signal.Notify(sigCh, os.Interrupt)
 	<-sigCh
 	consumer.Shutdown()
-
-	//wait for all in-flight routines to complete, on shutdown
-	consumer.routinesInFlight.Wait()
 
 	fmt.Println("Received SIGINT, shutting down.")
 }
@@ -43,16 +48,11 @@ func TestProducer(t *testing.T) {
 	dbPool, err := pgxpool.New(context.Background(), "postgres://app_admin:app_admin@localhost:5432/app_db")
 	panics.OnError(err, "failed to create pgx pool")
 
-	handler := func(ctx context.Context, msg *Message) {
-		time.Sleep(10 * time.Second)
-	}
-
-	consumer.Init(dbPool, "test_queue", 10, handler)
+	consumer.Init(dbPool, "test_queue", 10, 5, 5, func(ctx context.Context, msg *Message) {})
 	// start producer routine
 	go func() {
-		ctx := context.Background()
 		conn := consumer.getConnection()
-		defer conn.Close(ctx)
+		defer conn.Release()
 
 		// producer function
 		ticker := time.NewTicker(1 * time.Second)
