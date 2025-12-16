@@ -1,4 +1,4 @@
-module example.com/pgmq
+module github.com/rizvn/pgutils
 
 go 1.24.2
 
