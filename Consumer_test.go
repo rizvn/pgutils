@@ -45,16 +45,14 @@ func TestConsumer(t *testing.T) {
 }
 
 func TestProducer(t *testing.T) {
-	consumer := &Consumer{}
+	producer := &Producer{}
 
 	dbPool, err := pgxpool.New(context.Background(), "postgres://app_admin:app_admin@localhost:5432/app_db")
 	panics.OnError(err, "failed to create pgx pool")
 
-	consumer.Init(dbPool, "test_queue", 10, 10, 10, func(ctx context.Context, msg *PgmqMessage) {})
+	producer.Init(dbPool)
 	// start producer routine
 	go func() {
-		conn := consumer.getConnection()
-		defer conn.Release()
 
 		// producer function
 		ticker := time.NewTicker(1 * time.Second)
@@ -62,12 +60,8 @@ func TestProducer(t *testing.T) {
 		for {
 			select {
 			case <-ticker.C:
-				_, err := conn.Exec(context.Background(), fmt.Sprintf(`SELECT * from pgmq.send(
-									  queue_name  => '%s',
-									  msg         => '%s'
-									)`, consumer.queueName, `{"foo": "bar2"}`))
-				panics.OnError(err, "failed to send message")
-				fmt.Println("Produced a new message.")
+				fmt.Println("Producing message...")
+				producer.Produce("test_queue", `{"content": "Hello, World!"}`, "")
 			}
 		}
 	}()
@@ -77,6 +71,5 @@ func TestProducer(t *testing.T) {
 
 	signal.Notify(sigCh, os.Interrupt)
 	<-sigCh
-	consumer.Shutdown()
 
 }
