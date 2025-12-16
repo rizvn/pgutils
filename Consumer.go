@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -50,11 +49,11 @@ func (r *Consumer) createQueueIfNotExists() {
 
 func (r *Consumer) Shutdown() {
 	if r.consumerCtx != nil {
-		fmt.Println("Shutting down consumer...")
+		log.Println("Shutting down consumer...")
 		r.consumerCancel()
 		log.Printf("Waiting for inflight routines to complete...")
 		r.routinesInflight.Wait()
-		fmt.Println("Consumer shut down complete.")
+		log.Println("Consumer shut down complete.")
 	}
 }
 
@@ -74,11 +73,11 @@ func (r *Consumer) Start() {
 
 			// check for shutdown
 			case <-r.consumerCtx.Done():
-				fmt.Println("Shutting down consumer...")
+				log.Println("Shutting down consumer...")
 				return
 
 			default:
-				fmt.Println("Polling for messages...")
+				log.Println("Polling for messages...")
 				rows, err := conn.Query(context.Background(), `
 					SELECT * FROM pgmq.read_with_poll(
 					  queue_name => $1,
@@ -170,7 +169,7 @@ func (r *Consumer) DeleteMessage(msg *PgmqMessage) {
               		);`, r.QueueName, msg.MsgID)
 
 	if err != nil {
-		fmt.Printf("failed to delete message %d: %v\n", msg.MsgID, err)
+		log.Printf("failed to delete message %d: %v\n", msg.MsgID, err)
 	}
 }
 
@@ -184,7 +183,7 @@ func (r *Consumer) ArchiveMessage(msg *PgmqMessage) {
               		);`, r.QueueName, msg.MsgID)
 
 	if err != nil {
-		fmt.Printf("failed to archive message %d: %v\n", msg.MsgID, err)
+		log.Printf("failed to archive message %d: %v\n", msg.MsgID, err)
 	}
 }
 
@@ -197,12 +196,12 @@ func (r *Consumer) PurgeQueue(msg *PgmqMessage) {
               		);`, r.QueueName)
 
 	if err != nil {
-		fmt.Printf("failed to archive message %d: %v\n", msg.MsgID, err)
+		log.Printf("failed to archive message %d: %v\n", msg.MsgID, err)
 	}
 }
 
 func (r *Consumer) updateVisibilityTimeout(msg *PgmqMessage) {
-	fmt.Printf("Extending visibility timeout for message %d by %d secs\n", msg.MsgID, r.VisibilityTimeout)
+	log.Printf("Extending visibility timeout for message %d by %d secs\n", msg.MsgID, r.VisibilityTimeout)
 	conn := r.getConnection()
 	defer conn.Release()
 	_, err := conn.Exec(context.Background(), `
