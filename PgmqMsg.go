@@ -2,7 +2,7 @@ package main
 
 import "time"
 
-type Message struct {
+type PgmqMessage struct {
 	MsgID      int64
 	ReadCount  int
 	EnqueuedAt *time.Time

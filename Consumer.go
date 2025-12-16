@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type HandlerFunc func(ctx context.Context, msg *Message)
+type HandlerFunc func(ctx context.Context, msg *PgmqMessage)
 
 type Consumer struct {
 	queueName         string
@@ -19,7 +19,7 @@ type Consumer struct {
 	handlerFunc       HandlerFunc
 	dbPool            *pgxpool.Pool
 	RoutinesInflight  sync.WaitGroup
-	msgChan           chan *Message
+	msgChan           chan *PgmqMessage
 	maxPollSecs       int
 	visibilityTimeout int
 	concurrentMsgs    int
@@ -38,7 +38,7 @@ func (r *Consumer) Init(dbPool *pgxpool.Pool, queueName string, concurrentMsgs, 
 	r.createQueueIfNotExists()
 
 	r.RoutinesInflight = sync.WaitGroup{}
-	r.msgChan = make(chan *Message, concurrentMsgs)
+	r.msgChan = make(chan *PgmqMessage, concurrentMsgs)
 	go r.handleMessages()
 }
 
@@ -96,7 +96,7 @@ func (r *Consumer) start() {
 					panic("failed to read messages")
 				}
 
-				msg := &Message{}
+				msg := &PgmqMessage{}
 
 				// read message
 				for rows.Next() {
@@ -152,7 +152,7 @@ func (r *Consumer) handleMessages() {
 	}
 }
 
-func (r *Consumer) deleteMsg(msg *Message) {
+func (r *Consumer) deleteMsg(msg *PgmqMessage) {
 	conn := r.getConnection()
 	defer conn.Release()
 	_, err := conn.Exec(context.Background(), `
@@ -166,7 +166,7 @@ func (r *Consumer) deleteMsg(msg *Message) {
 	}
 }
 
-func (r *Consumer) updateVisbilityTimeout(msg *Message) {
+func (r *Consumer) updateVisbilityTimeout(msg *PgmqMessage) {
 	fmt.Printf("Extending visibility timeout for message %d by %d secs\n", msg.MsgID, r.visibilityTimeout)
 	conn := r.getConnection()
 	defer conn.Release()
