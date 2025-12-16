@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -128,6 +129,21 @@ func (r *Consumer) handleMessages() {
 			r.RoutinesInflight.Add(1)
 			defer r.RoutinesInflight.Done()
 
+			ticker := time.NewTicker(time.Duration(r.visibilityTimeout/2) * time.Second)
+			defer ticker.Stop()
+
+			go func() {
+				for {
+					select {
+					case <-ticker.C:
+						r.updateVisbilityTimeout(msg)
+					case <-r.consumerCtx.Done():
+						ticker.Stop()
+						return
+					}
+				}
+			}()
+
 			r.handlerFunc(context.Background(), msg)
 			r.deleteMsg(msg)
 		}()
@@ -149,6 +165,7 @@ func (r *Consumer) deleteMsg(msg *Message) {
 }
 
 func (r *Consumer) updateVisbilityTimeout(msg *Message) {
+	fmt.Printf("Extending visibility timeout for message %d by %d secs\n", msg.MsgID, r.visibilityTimeout)
 	conn := r.getConnection()
 	defer conn.Release()
 	_, err := conn.Exec(context.Background(), `

@@ -27,9 +27,11 @@ func TestConsumer(t *testing.T) {
 
 	handler := func(ctx context.Context, msg *Message) {
 		fmt.Printf("Processing message: %v\n", msg)
+		time.Sleep(8 * time.Second) // Simulate processing time
+		fmt.Printf("Finished processing message: %v\n", msg)
 	}
 
-	consumer.Init(dbPool, "test_queue", 10, 5, 5, handler)
+	consumer.Init(dbPool, "test_queue", 10, 10, 10, handler)
 	consumer.start()
 
 	// Wait for SIGINT (Ctrl+C) to exit gracefully
@@ -48,7 +50,7 @@ func TestProducer(t *testing.T) {
 	dbPool, err := pgxpool.New(context.Background(), "postgres://app_admin:app_admin@localhost:5432/app_db")
 	panics.OnError(err, "failed to create pgx pool")
 
-	consumer.Init(dbPool, "test_queue", 10, 5, 5, func(ctx context.Context, msg *Message) {})
+	consumer.Init(dbPool, "test_queue", 10, 10, 10, func(ctx context.Context, msg *Message) {})
 	// start producer routine
 	go func() {
 		conn := consumer.getConnection()
