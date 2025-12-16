@@ -52,7 +52,7 @@ func StartPgTestContainer() (testcontainers.Container, string) {
 	}
 	port, err := postgresC.MappedPort(ctx, "5432")
 	if err != nil {
-		panic(fmt.Sprintf("failed to get mapped port: %v"))
+		panic(fmt.Sprintf("failed to get mapped port: %v", err))
 	}
 	dsn := fmt.Sprintf("postgres://app_admin:app_admin@%s:%s/app_db", host, port.Port())
 
