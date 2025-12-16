@@ -3,6 +3,7 @@ package pgcache_test
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -19,7 +20,15 @@ func TestPgCache(t *testing.T) {
 
 	// define Postgres container request
 	req := testcontainers.ContainerRequest{
-		Image:        "postgres:17-alpine",
+		// Using custom Dockerfile to include pg_cron extension
+		FromDockerfile: testcontainers.FromDockerfile{
+			Context:        "../../docker-compose/postgres",
+			Dockerfile:     "postgres-custom.Dockerfile",
+			BuildLogWriter: os.Stdout,
+			Tag:            "pg-test",
+			KeepImage:      true,
+		},
+		//Image:        "postgres:17-alpine",
 		ExposedPorts: []string{"5432/tcp"},
 		Env: map[string]string{
 			"POSTGRES_USER":     "app_admin",

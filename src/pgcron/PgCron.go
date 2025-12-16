@@ -10,8 +10,8 @@ type PgCron struct {
 	DbPool *pgxpool.Pool
 }
 
-func (r *PgCron) Init(dbPool *pgxpool.Pool) {
-	if dbPool == nil {
+func (r *PgCron) Init() {
+	if r.DbPool == nil {
 		panic("DbPool is required")
 	}
 }

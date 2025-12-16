@@ -12,6 +12,7 @@ import (
 
 func TestConsumer(t *testing.T) {
 	c := &Consumer{}
+	p := &Producer{}
 
 	config, err := pgxpool.ParseConfig("postgres://app_admin:app_admin@localhost:5432/app_db")
 	if err != nil {

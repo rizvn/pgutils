@@ -2,65 +2,18 @@ package pgcron_test
 
 import (
 	"context"
-	"fmt"
-	"os"
+	"log"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rizvn/pgutils/pgcron"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
+	"github.com/rizvn/pgutils/testutil"
 )
 
 func TestPgCron(t *testing.T) {
-	ctx := context.Background()
-
-	// define Postgres container request
-	req := testcontainers.ContainerRequest{
-		// Using custom Dockerfile to include pg_cron extension
-		FromDockerfile: testcontainers.FromDockerfile{
-			Context:        "../../docker-compose/postgres",
-			Dockerfile:     "postgres-custom.Dockerfile",
-			BuildLogWriter: os.Stdout,
-			Tag:            "pg-test",
-			KeepImage:      true,
-		},
-		//Image:        "postgres:17-alpine",
-		ExposedPorts: []string{"5432/tcp"},
-		Env: map[string]string{
-			"POSTGRES_USER":     "app_admin",
-			"POSTGRES_PASSWORD": "app_admin",
-			"POSTGRES_DB":       "app_db",
-		},
-
-		WaitingFor: wait.ForAll(
-			wait.ForListeningPort("5432/tcp"),
-			wait.ForLog("database system is ready to accept connections").WithStartupTimeout(60*time.Second),
-		),
-	}
-
-	postgresC, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: req,
-		Started:          true,
-	})
-
-	if err != nil {
-		t.Fatalf("failed to start postgres container: %v", err)
-	}
-
-	// Ensure the container is terminated after the test
-	defer func() { _ = postgresC.Terminate(ctx) }()
-
-	host, err := postgresC.Host(ctx)
-	if err != nil {
-		t.Fatalf("failed to get container host: %v", err)
-	}
-	port, err := postgresC.MappedPort(ctx, "5432")
-	if err != nil {
-		t.Fatalf("failed to get mapped port: %v", err)
-	}
-	dsn := fmt.Sprintf("postgres://app_admin:app_admin@%s:%s/app_db", host, port.Port())
+	ctr, dsn := testutil.StartPgTestContainer()
+	defer func() { _ = ctr.Terminate(context.Background()) }()
 
 	config, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
@@ -74,19 +27,96 @@ func TestPgCron(t *testing.T) {
 
 	p := &pgcron.PgCron{}
 	p.DbPool = dbPool
-	p.Init(dbPool)
+	p.Init()
 
 	t.Run("Schedule Job", func(t *testing.T) {
+		conn, err := dbPool.Acquire(context.Background())
+		if err != nil {
+			t.Fatalf("failed to acquire connection: %v", err)
+		}
+		defer conn.Release()
+
+		_, err = conn.Exec(context.Background(), `SELECT *  FROM pgmq.create('test_queue')`)
+		if err != nil {
+			t.Fatalf("failed to create pgmq queue: %v", err)
+		}
+
+		log.Print("Scheduling test_job to run every minute")
 		p.Schedule("test_job", "* * * * *",
 			`SELECT * from pgmq.send(
 			queue_name  => 'test_queue',
 			msg         => '{"msg":"hello from cron"}',
 			headers     => '{}'
 		)`)
+
+		log.Print("Waiting for 70 seconds to allow job to run")
+		time.Sleep(70 * time.Second)
+
+		// check if message was produced in pgmq table
+
+		log.Print("Querying pgmq.q_test_queue table for messages")
+		rows, err := conn.Query(context.Background(), `SELECT count(0) FROM pgmq.q_test_queue`)
+		defer rows.Close()
+
+		if err != nil {
+			t.Fatalf("failed to query pgmq table: %v", err)
+		}
+		var count int
+		for rows.Next() {
+			err = rows.Scan(&count)
+			if err != nil {
+				t.Fatalf("failed to scan count: %v", err)
+			}
+		}
+		if count == 0 {
+			t.Fatalf("expected at least 1 message in pgmq table, got 0")
+		}
 	})
 
 	t.Run("Pause Job", func(t *testing.T) {
+		conn, err := dbPool.Acquire(context.Background())
+		if err != nil {
+			t.Fatalf("failed to acquire connection: %v", err)
+		}
+		defer conn.Release()
+
+		_, err = conn.Exec(context.Background(), `SELECT *  FROM pgmq.create('test_queue')`)
+		if err != nil {
+			t.Fatalf("failed to create pgmq queue: %v", err)
+		}
+
+		log.Print("Scheduling test_job to run every minute")
+		p.Schedule("test_job", "* * * * *",
+			`SELECT * from pgmq.send(
+			queue_name  => 'test_queue',
+			msg         => '{"msg":"hello from cron"}',
+			headers     => '{}'
+		)`)
+
 		p.Pause("test_job")
+
+		log.Print("Waiting for 70 seconds to allow job to run")
+		time.Sleep(70 * time.Second)
+
+		// check if message was produced in pgmq table
+
+		log.Print("Querying pgmq.q_test_queue table for messages")
+		rows, err := conn.Query(context.Background(), `SELECT count(0) FROM pgmq.q_test_queue`)
+		defer rows.Close()
+
+		if err != nil {
+			t.Fatalf("failed to query pgmq table: %v", err)
+		}
+		var count int
+		for rows.Next() {
+			err = rows.Scan(&count)
+			if err != nil {
+				t.Fatalf("failed to scan count: %v", err)
+			}
+		}
+		if count != 0 {
+			t.Fatalf("expected at least 0 message in pgmq table, got some")
+		}
 	})
 
 }
