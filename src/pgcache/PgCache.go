@@ -9,9 +9,11 @@ import (
 )
 
 type PgCache struct {
-	CacheName  string        `required:"true"`
-	DbPool     *pgxpool.Pool `required:"true"`
-	TTL        int           `required:"true"`
+	CacheName string        `required:"true"`
+	DbPool    *pgxpool.Pool `required:"true"`
+	TTL       int
+
+	//internal use
 	cacheTable string
 }
 
