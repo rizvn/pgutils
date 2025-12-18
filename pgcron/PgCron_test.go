@@ -2,13 +2,13 @@ package pgcron_test
 
 import (
 	"context"
+	"database/sql"
+	"github.com/rizvn/pgutils/pgcron"
+	"github.com/rizvn/pgutils/testutil"
+	"github.com/rizvn/pgutils/util"
 	"log"
 	"testing"
 	"time"
-
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/rizvn/pgutils/pgcron"
-	"github.com/rizvn/pgutils/testutil"
 )
 
 func TestPgCron(t *testing.T) {
@@ -16,20 +16,17 @@ func TestPgCron(t *testing.T) {
 	ctr, dsn := testutil.StartPgTestContainer()
 	defer func() { _ = ctr.Terminate(context.Background()) }()
 
-	// Create pgx pool
-	config, err := pgxpool.ParseConfig(dsn)
-	if err != nil {
-		panic("failed to parse pgx config")
-	}
-	config.MaxConns = 20 // set your desired max connections
-	dbPool, err := pgxpool.NewWithConfig(context.Background(), config)
+	// Create db pool
+	dbPool, err := sql.Open("pgx", dsn)
 	if err != nil {
 		panic("failed to create pgx pool")
 	}
+	dbPool.SetMaxOpenConns(20)
 
 	// Create pgcron instance
-	p := &pgcron.PgCron{}
-	p.DbPool = dbPool
+	p := &pgcron.PgCron{
+		DbPool: dbPool,
+	}
 	p.Init()
 
 	// Test scheduling a job
@@ -53,15 +50,11 @@ func TestPgCron(t *testing.T) {
 		// check if message was produced in pgmq table
 
 		//get db connection
-		conn, err := dbPool.Acquire(context.Background())
-		if err != nil {
-			t.Fatalf("failed to acquire connection: %v", err)
-		}
-		defer conn.Release()
+		conn := util.GetDbConnection(dbPool)
+		defer util.CloseDbConnection(conn)
 
 		log.Print("Querying pgmq.q_test_queue table for messages")
-		rows, err := conn.Query(context.Background(), `SELECT count(0) FROM pgmq.q_test_queue`)
-		defer rows.Close()
+		rows, err := conn.QueryContext(context.Background(), `SELECT count(0) FROM pgmq.q_test_queue`)
 
 		if err != nil {
 			t.Fatalf("failed to query pgmq table: %v", err)
@@ -96,16 +89,11 @@ func TestPgCron(t *testing.T) {
 		log.Print("Waiting for 70 seconds to allow job to run")
 		time.Sleep(70 * time.Second)
 
-		// check if message was produced in pgmq table
-		conn, err := dbPool.Acquire(context.Background())
-		if err != nil {
-			t.Fatalf("failed to acquire connection: %v", err)
-		}
-		defer conn.Release()
+		conn := util.GetDbConnection(dbPool)
+		defer util.CloseDbConnection(conn)
 
 		log.Print("Querying pgmq.q_test_queue table for messages")
-		rows, err := conn.Query(context.Background(), `SELECT count(0) FROM pgmq.q_test_queue`)
-		defer rows.Close()
+		rows, err := conn.QueryContext(context.Background(), `SELECT count(0) FROM pgmq.q_test_queue`)
 
 		if err != nil {
 			t.Fatalf("failed to query pgmq table: %v", err)
@@ -124,23 +112,18 @@ func TestPgCron(t *testing.T) {
 
 }
 
-func initTestQueue(dbPool *pgxpool.Pool, t *testing.T) {
-
-	//get db connection
-	conn, err := dbPool.Acquire(context.Background())
-	if err != nil {
-		t.Fatalf("failed to acquire connection: %v", err)
-	}
-	defer conn.Release()
+func initTestQueue(dbPool *sql.DB, t *testing.T) {
+	conn := util.GetDbConnection(dbPool)
+	defer util.CloseDbConnection(conn)
 
 	// Create pgmq queue to use in the test
-	_, err = conn.Exec(context.Background(), `SELECT *  FROM pgmq.create('test_queue')`)
+	_, err := conn.ExecContext(context.Background(), `SELECT *  FROM pgmq.create('test_queue')`)
 	if err != nil {
 		t.Fatalf("failed to create pgmq queue: %v", err)
 	}
 
 	// Clean up pgmq queue so its empty
-	_, err = conn.Exec(context.Background(), `SELECT * FROM pgmq.purge_queue('test_queue')`)
+	_, err = conn.ExecContext(context.Background(), `SELECT * FROM pgmq.purge_queue('test_queue')`)
 	if err != nil {
 		t.Fatalf("failed to truncate pgmq queue: %v", err)
 	}

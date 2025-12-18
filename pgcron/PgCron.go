@@ -2,12 +2,14 @@ package pgcron
 
 import (
 	"context"
+	"database/sql"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/rizvn/pgutils/util"
 )
 
 type PgCron struct {
-	DbPool *pgxpool.Pool
+	DbPool *sql.DB `required:"true"`
 }
 
 func (r *PgCron) Init() {
@@ -16,19 +18,11 @@ func (r *PgCron) Init() {
 	}
 }
 
-func (r *PgCron) getConnection() *pgxpool.Conn {
-	conn, err := r.DbPool.Acquire(context.Background())
-	if err != nil {
-		panic("failed to acquire connection")
-	}
-	return conn
-}
-
 func (r *PgCron) Schedule(jobName string, schedule string, command string) {
-	conn := r.getConnection()
-	defer conn.Release()
+	conn := util.GetDbConnection(r.DbPool)
+	defer util.CloseDbConnection(conn)
 
-	_, err := conn.Exec(context.Background(),
+	_, err := conn.ExecContext(context.Background(),
 		`SELECT cron.schedule($1, $2, $3)`,
 		jobName, schedule, command)
 
@@ -38,10 +32,10 @@ func (r *PgCron) Schedule(jobName string, schedule string, command string) {
 }
 
 func (r *PgCron) Remove(jobName string) {
-	conn := r.getConnection()
-	defer conn.Release()
+	conn := util.GetDbConnection(r.DbPool)
+	defer util.CloseDbConnection(conn)
 
-	_, err := conn.Exec(context.Background(),
+	_, err := conn.ExecContext(context.Background(),
 		`SELECT cron.unschedule($1)`,
 		jobName)
 
@@ -51,10 +45,10 @@ func (r *PgCron) Remove(jobName string) {
 }
 
 func (r *PgCron) Pause(jobName string) {
-	conn := r.getConnection()
-	defer conn.Release()
+	conn := util.GetDbConnection(r.DbPool)
+	defer util.CloseDbConnection(conn)
 
-	_, err := conn.Exec(context.Background(),
+	_, err := conn.ExecContext(context.Background(),
 		`SELECT cron.alter_job((SELECT jobid FROM cron.job WHERE jobname = $1), active := false)`,
 		jobName)
 	if err != nil {
