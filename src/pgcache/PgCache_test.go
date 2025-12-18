@@ -26,11 +26,11 @@ func TestPgCache(t *testing.T) {
 		panic("failed to create pgx pool")
 	}
 
+	// Create PgCache instance
 	pgCache := &pgcache.PgCache{
 		CacheName: "test",
 		TTL:       600, // 10 minutes
 	}
-
 	pgCache.Init(dbPool)
 
 	t.Run("Put Value", func(t *testing.T) {

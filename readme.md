@@ -17,7 +17,7 @@ CREATE EXTENSION IF NOT EXISTS pgmq;
 CREATE EXTENSION IF NOT EXISTS pgcron;
 ```
 
-# For Testing locally
+# For Running locally
 Run the docker-compose under docker-compose folder to spin up a postgres instance with required extensions.
 ```bash
 cd docker-compose
@@ -25,4 +25,11 @@ docker-compose up -d
 ```
 
 See `*_test.go` files for usage examples of each package.
+
+The test uses testcontainers to spin up a temporary postgres instance with required extensions.
+Ensure you have Docker running on your machine.
+To run the tests, execute:
+```bash
+go test ./...
+```
 
