@@ -121,6 +121,6 @@ Ensure you have Docker running on your machine.
 To run the tests, execute:
 
 ```bash
-go test ./...
+go test -tags=test ./...
 ```
 
