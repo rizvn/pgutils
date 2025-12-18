@@ -41,13 +41,12 @@ import (
     "github.com/rizvn/pgutils/pgmq"
 )
 
-// Create pgx pool
-config, err := pgxpool.ParseConfig("postgres://user:password@localhost:5432/dbname")
+// Create db pool
+dbPool, err := sql.Open("pgx", "postgres://user:password@localhost:5432/dbname")
 if err != nil {
-    panic("failed to parse pgx config")
+    panic(fmt.Sprintf("failed to create db p pool pool %v", err)
 }
-config.MaxConns = 20 // set your desired max connections
-dbPool, err := pgxpool.NewWithConfig(context.Background(), config)
+dbPool.SetMaxOpenConns(20)
 
 
     
