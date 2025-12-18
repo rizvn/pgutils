@@ -2,10 +2,10 @@ package pgcache_test
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rizvn/pgutils/pgcache"
 	"github.com/rizvn/pgutils/testutil"
 )
@@ -15,16 +15,11 @@ func TestPgCache(t *testing.T) {
 	ctr, dsn := testutil.StartPgTestContainer()
 	defer func() { _ = ctr.Terminate(context.Background()) }()
 
-	// Create pgx pool
-	config, err := pgxpool.ParseConfig(dsn)
-	if err != nil {
-		panic("failed to parse pgx config")
-	}
-	config.MaxConns = 20 // set your desired max connections
-	dbPool, err := pgxpool.NewWithConfig(context.Background(), config)
+	dbPool, err := sql.Open("pgx", dsn)
 	if err != nil {
 		panic("failed to create pgx pool")
 	}
+	dbPool.SetMaxOpenConns(20)
 
 	// Create PgCache instance
 	pgCache := &pgcache.PgCache{

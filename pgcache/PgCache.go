@@ -2,15 +2,17 @@ package pgcache
 
 import (
 	"context"
+	"database/sql"
 	"strconv"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/rizvn/pgutils/util"
 )
 
 type PgCache struct {
-	CacheName string        `required:"true"`
-	DbPool    *pgxpool.Pool `required:"true"`
+	CacheName string  `required:"true"`
+	DbPool    *sql.DB `required:"true"`
 	TTL       int
 
 	//internal use
@@ -36,8 +38,8 @@ func (r *PgCache) Init() {
 }
 
 func (r *PgCache) createCacheTable() {
-	conn := r.getConnection()
-	defer conn.Release()
+	conn := util.GetDbConnection(r.DbPool)
+	defer util.CloseDbConnection(conn)
 
 	query := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS ` + r.cacheTable + ` (
@@ -46,7 +48,7 @@ func (r *PgCache) createCacheTable() {
 		created_on TIMESTAMPTZ NOT NULL,
 		expires_on TIMESTAMPTZ NOT NULL
 	)`
-	_, err := conn.Exec(context.Background(), query)
+	_, err := conn.ExecContext(context.Background(), query)
 	if err != nil {
 		panic("failed to create cache store: " + err.Error())
 	}
@@ -57,8 +59,8 @@ func (r *PgCache) Put(id string, content []byte) {
 }
 
 func (r *PgCache) PutWitTTL(id string, content []byte, ttl int) {
-	conn := r.getConnection()
-	defer conn.Release()
+	conn := util.GetDbConnection(r.DbPool)
+	defer util.CloseDbConnection(conn)
 
 	// Upsert value with expiration
 	query :=
@@ -69,19 +71,19 @@ func (r *PgCache) PutWitTTL(id string, content []byte, ttl int) {
            SET content = EXCLUDED.content, 
                created_on = EXCLUDED.created_on, 
                expires_on = EXCLUDED.expires_on`
-	_, err := conn.Exec(context.Background(), query, id, content)
+	_, err := conn.ExecContext(context.Background(), query, id, content)
 	if err != nil {
 		panic("failed to cache value: " + err.Error())
 	}
 }
 
 func (r *PgCache) Get(id string) ([]byte, bool) {
-	conn := r.getConnection()
-	defer conn.Release()
+	conn := util.GetDbConnection(r.DbPool)
+	defer util.CloseDbConnection(conn)
 
 	var content []byte
 	query := `SELECT content FROM ` + r.cacheTable + ` WHERE id = $1 AND expires_on > NOW()`
-	err := conn.QueryRow(context.Background(), query, id).Scan(&content)
+	err := conn.QueryRowContext(context.Background(), query, id).Scan(&content)
 	if err != nil {
 		return nil, false
 	}
@@ -89,22 +91,22 @@ func (r *PgCache) Get(id string) ([]byte, bool) {
 }
 
 func (r *PgCache) Delete(id string) {
-	conn := r.getConnection()
-	defer conn.Release()
+	conn := util.GetDbConnection(r.DbPool)
+	defer util.CloseDbConnection(conn)
 
 	query := `DELETE FROM ` + r.cacheTable + ` WHERE id = $1`
-	_, err := conn.Exec(context.Background(), query, id)
+	_, err := conn.ExecContext(context.Background(), query, id)
 	if err != nil {
 		panic("failed to delete cache entry: " + err.Error())
 	}
 }
 
 func (r *PgCache) DeleteExpired() {
-	conn := r.getConnection()
-	defer conn.Release()
+	conn := util.GetDbConnection(r.DbPool)
+	defer util.CloseDbConnection(conn)
 
 	query := `DELETE FROM ` + r.cacheTable + ` WHERE expires_on <= NOW()`
-	_, err := conn.Exec(context.Background(), query)
+	_, err := conn.ExecContext(context.Background(), query)
 	if err != nil {
 		panic("failed to delete expired cache entries: " + err.Error())
 	}
@@ -124,31 +126,23 @@ func (r *PgCache) CleanUp(ctx context.Context) {
 }
 
 func (r *PgCache) ClearCacheStore() {
-	conn := r.getConnection()
-	defer conn.Release()
+	conn := util.GetDbConnection(r.DbPool)
+	defer util.CloseDbConnection(conn)
 
 	query := `TRUNCATE TABLE ` + r.cacheTable
-	_, err := conn.Exec(context.Background(), query)
+	_, err := conn.ExecContext(context.Background(), query)
 	if err != nil {
 		panic("failed to clear cache store: " + err.Error())
 	}
 }
 
 func (r *PgCache) DropCacheStore() {
-	conn := r.getConnection()
-	defer conn.Release()
+	conn := util.GetDbConnection(r.DbPool)
+	defer util.CloseDbConnection(conn)
 
 	query := `DROP TABLE IF EXISTS ` + r.cacheTable
-	_, err := conn.Exec(context.Background(), query)
+	_, err := conn.ExecContext(context.Background(), query)
 	if err != nil {
 		panic("failed to drop cache store: " + err.Error())
 	}
-}
-
-func (r *PgCache) getConnection() *pgxpool.Conn {
-	conn, err := r.DbPool.Acquire(context.Background())
-	if err != nil {
-		panic("failed to acquire connection")
-	}
-	return conn
 }
