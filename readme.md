@@ -8,6 +8,11 @@ Set of utilities to work with advanced features of postgresql.
 ## Installation
 Ensure you have the required extensions installed in your PostgreSQL database:
 
+```go
+go get github.com/rizvn/pgutils
+```
+
+
 ```sql
 
 -- if using pgmq features 
