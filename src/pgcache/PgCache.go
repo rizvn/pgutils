@@ -17,16 +17,14 @@ type PgCache struct {
 	cacheTable string
 }
 
-func (r *PgCache) Init(dbPool *pgxpool.Pool) {
-	if dbPool == nil {
+func (r *PgCache) Init() {
+	if r.DbPool == nil {
 		panic("DbPool is required")
 	}
 
 	if r.CacheName == "" {
 		panic("CacheName is required")
 	}
-
-	r.DbPool = dbPool
 
 	if r.TTL == 0 {
 		r.TTL = 3600 // Default TTL of 1 hour

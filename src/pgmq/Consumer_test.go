@@ -31,9 +31,10 @@ func TestConsumer(t *testing.T) {
 	// create consumer
 	var recvd *PgmqMessage = nil
 
-	c := &Consumer{}
-	c.QueueName = "test_queue"
-	c.DbPool = dbPool
+	c := &Consumer{
+		DbPool:    dbPool,
+		QueueName: "test_queue",
+	}
 
 	// message handler runs when a message is received
 	c.MessageHandler = func(ctx context.Context, msg *PgmqMessage) {
@@ -48,8 +49,10 @@ func TestConsumer(t *testing.T) {
 	c.Start()
 
 	// create producer
-	p := &Producer{}
-	p.DbPool = dbPool
+	p := &Producer{
+		DbPool: dbPool,
+	}
+
 	p.Init()
 
 	// send a test message

@@ -28,10 +28,11 @@ func TestPgCache(t *testing.T) {
 
 	// Create PgCache instance
 	pgCache := &pgcache.PgCache{
+		DbPool:    dbPool,
 		CacheName: "test",
 		TTL:       600, // 10 minutes
 	}
-	pgCache.Init(dbPool)
+	pgCache.Init()
 
 	t.Run("Put Value", func(t *testing.T) {
 		// Test Put
