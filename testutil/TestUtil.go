@@ -17,7 +17,7 @@ func StartPgTestContainer() (testcontainers.Container, string) {
 	req := testcontainers.ContainerRequest{
 		// Using custom Dockerfile to include pg_cron extension
 		FromDockerfile: testcontainers.FromDockerfile{
-			Context:        "../../docker-compose/postgres",
+			Context:        "../docker-compose/postgres",
 			Dockerfile:     "postgres-custom.Dockerfile",
 			BuildLogWriter: os.Stdout,
 			Tag:            "pg-test",
