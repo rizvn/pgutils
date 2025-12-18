@@ -1,11 +1,9 @@
 package pgcron
 
 import (
-	"context"
 	"database/sql"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/rizvn/pgutils/util"
 )
 
 type PgCron struct {
@@ -19,12 +17,7 @@ func (r *PgCron) Init() {
 }
 
 func (r *PgCron) Schedule(jobName string, schedule string, command string) {
-	conn := util.GetDbConnection(r.DbPool)
-	defer util.CloseDbConnection(conn)
-
-	_, err := conn.ExecContext(context.Background(),
-		`SELECT cron.schedule($1, $2, $3)`,
-		jobName, schedule, command)
+	_, err := r.DbPool.Exec(`SELECT cron.schedule($1, $2, $3)`, jobName, schedule, command)
 
 	if err != nil {
 		panic("failed to schedule cron job: " + err.Error())
@@ -32,12 +25,7 @@ func (r *PgCron) Schedule(jobName string, schedule string, command string) {
 }
 
 func (r *PgCron) Remove(jobName string) {
-	conn := util.GetDbConnection(r.DbPool)
-	defer util.CloseDbConnection(conn)
-
-	_, err := conn.ExecContext(context.Background(),
-		`SELECT cron.unschedule($1)`,
-		jobName)
+	_, err := r.DbPool.Exec(`SELECT cron.unschedule($1)`, jobName)
 
 	if err != nil {
 		panic("failed to remove cron job: " + err.Error())
@@ -45,10 +33,8 @@ func (r *PgCron) Remove(jobName string) {
 }
 
 func (r *PgCron) Pause(jobName string) {
-	conn := util.GetDbConnection(r.DbPool)
-	defer util.CloseDbConnection(conn)
 
-	_, err := conn.ExecContext(context.Background(),
+	_, err := r.DbPool.Exec(
 		`SELECT cron.alter_job((SELECT jobid FROM cron.job WHERE jobname = $1), active := false)`,
 		jobName)
 	if err != nil {

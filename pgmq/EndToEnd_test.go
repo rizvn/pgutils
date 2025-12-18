@@ -3,15 +3,14 @@ package pgmq
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"testing"
-	"time"
 
 	"github.com/rizvn/pgutils/testutil"
 )
 
-func TestConsumer(t *testing.T) {
+func TestEndToEnd(t *testing.T) {
 	// create context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*1)
 
 	// Start Postgres test container
 	ctr, dsn := testutil.StartPgTestContainer()
@@ -22,23 +21,25 @@ func TestConsumer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create db p pool pool %v", err)
 	}
-	dbPool.SetMaxOpenConns(20)
-
-	// create consumer
-	var recvd *PgmqMessage = nil
+	dbPool.SetMaxOpenConns(10)
 
 	c := &Consumer{
 		DbPool:    dbPool,
 		QueueName: "test_queue",
 	}
 
+	count := 0
+	done := make(chan bool, 1)
+
 	// message handler runs when a message is received
 	c.MessageHandler = func(ctx context.Context, msg *PgmqMessage) {
-		// capture received message
-		recvd = msg
 
-		// cancel context to end test
-		cancel()
+		fmt.Printf("Received message: %v\n", msg)
+		count++
+		if count == 100 {
+			done <- true
+		}
+
 	}
 
 	c.Init()
@@ -51,20 +52,12 @@ func TestConsumer(t *testing.T) {
 
 	p.Init()
 
-	// send a test message
-	p.Produce("test_queue", `{"content": "Hello, Test!"}`, "{}")
-
-	// wait for message or context timeout
-	for {
-		select {
-		case <-ctx.Done():
-			// check if message was received on cancel or timeout
-			if recvd == nil {
-				t.Errorf("Expected to receive a message, but none was received")
-			}
-			// shutdown consumer
-			c.ShutdownWithWait()
-			return
-		}
+	// produce 100 messages
+	for i := 0; i < 100; i++ {
+		// send a test message
+		p.Produce("test_queue", `{"content": "Hello, Test!"}`, "{}")
 	}
+
+	<-done
+
 }

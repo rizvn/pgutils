@@ -3,12 +3,12 @@ package pgcron_test
 import (
 	"context"
 	"database/sql"
-	"github.com/rizvn/pgutils/pgcron"
-	"github.com/rizvn/pgutils/testutil"
-	"github.com/rizvn/pgutils/util"
 	"log"
 	"testing"
 	"time"
+
+	"github.com/rizvn/pgutils/pgcron"
+	"github.com/rizvn/pgutils/testutil"
 )
 
 func TestPgCron(t *testing.T) {
@@ -50,11 +50,9 @@ func TestPgCron(t *testing.T) {
 		// check if message was produced in pgmq table
 
 		//get db connection
-		conn := util.GetDbConnection(dbPool)
-		defer util.CloseDbConnection(conn)
 
 		log.Print("Querying pgmq.q_test_queue table for messages")
-		rows, err := conn.QueryContext(context.Background(), `SELECT count(0) FROM pgmq.q_test_queue`)
+		rows, err := dbPool.Query(`SELECT count(0) FROM pgmq.q_test_queue`)
 
 		if err != nil {
 			t.Fatalf("failed to query pgmq table: %v", err)
@@ -89,11 +87,8 @@ func TestPgCron(t *testing.T) {
 		log.Print("Waiting for 70 seconds to allow job to run")
 		time.Sleep(70 * time.Second)
 
-		conn := util.GetDbConnection(dbPool)
-		defer util.CloseDbConnection(conn)
-
 		log.Print("Querying pgmq.q_test_queue table for messages")
-		rows, err := conn.QueryContext(context.Background(), `SELECT count(0) FROM pgmq.q_test_queue`)
+		rows, err := dbPool.Query(`SELECT count(0) FROM pgmq.q_test_queue`)
 
 		if err != nil {
 			t.Fatalf("failed to query pgmq table: %v", err)
@@ -113,17 +108,14 @@ func TestPgCron(t *testing.T) {
 }
 
 func initTestQueue(dbPool *sql.DB, t *testing.T) {
-	conn := util.GetDbConnection(dbPool)
-	defer util.CloseDbConnection(conn)
-
 	// Create pgmq queue to use in the test
-	_, err := conn.ExecContext(context.Background(), `SELECT *  FROM pgmq.create('test_queue')`)
+	_, err := dbPool.Exec(`SELECT *  FROM pgmq.create('test_queue')`)
 	if err != nil {
 		t.Fatalf("failed to create pgmq queue: %v", err)
 	}
 
 	// Clean up pgmq queue so its empty
-	_, err = conn.ExecContext(context.Background(), `SELECT * FROM pgmq.purge_queue('test_queue')`)
+	_, err = dbPool.ExecContext(context.Background(), `SELECT * FROM pgmq.purge_queue('test_queue')`)
 	if err != nil {
 		t.Fatalf("failed to truncate pgmq queue: %v", err)
 	}

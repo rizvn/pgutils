@@ -2,9 +2,9 @@ package pgmq
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rizvn/pgutils/testutil"
 )
 
@@ -13,28 +13,21 @@ func TestProducer(t *testing.T) {
 	ctr, dsn := testutil.StartPgTestContainer()
 	defer func() { _ = ctr.Terminate(context.Background()) }()
 
-	// Create pgx pool
-	dbPool, err := pgxpool.New(context.Background(), dsn)
-
+	// Create db pool
+	dbPool, err := sql.Open("pgx", dsn)
 	if err != nil {
-		t.Fatalf("failed to create pgx pool: %v", err)
+		t.Fatalf("failed to create db p pool pool %v", err)
 	}
-
-	// Arrange - ensure pgmq queue exists
-	conn, err := dbPool.Acquire(context.Background())
-	if err != nil {
-		t.Fatalf("failed to acquire connection: %v", err)
-	}
-	defer conn.Release()
+	dbPool.SetMaxOpenConns(20)
 
 	// Create pgmq queue
-	_, err = conn.Exec(context.Background(), `SELECT *  FROM pgmq.create('test_queue')`)
+	_, err = dbPool.Exec(`SELECT *  FROM pgmq.create('test_queue')`)
 	if err != nil {
 		t.Fatalf("failed to create pgmq queue: %v", err)
 	}
 
 	// Clean up pgmq queue so its empty
-	_, err = conn.Exec(context.Background(), `SELECT * FROM pgmq.purge_queue('test_queue')`)
+	_, err = dbPool.Exec(`SELECT * FROM pgmq.purge_queue('test_queue')`)
 	if err != nil {
 		t.Fatalf("failed to truncate pgmq queue: %v", err)
 	}
@@ -42,20 +35,19 @@ func TestProducer(t *testing.T) {
 	// Act
 
 	// Create producer
-	p := &Producer{}
-	p.DbPool = dbPool
+	p := &Producer{
+		DbPool: dbPool,
+	}
 	p.Init()
 
 	// Produce a message
 	p.Produce("test_queue", `{"content": "Hello, World!"}`, "{}")
 
 	// Assert - check if message was produced in pgmq table
-	row, err := conn.Query(context.Background(), `SELECT count(0) FROM pgmq.q_test_queue`)
+	row, err := dbPool.Query(`SELECT count(0) FROM pgmq.q_test_queue`)
 	if err != nil {
 		t.Fatalf("failed to query pgmq queue: %v", err)
 	}
-
-	defer row.Close()
 
 	var msgCount int
 	for row.Next() {

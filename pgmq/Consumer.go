@@ -2,12 +2,15 @@ package pgmq
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/pgconn"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 type MessageHandlerFunc func(ctx context.Context, msg *PgmqMessage)
@@ -15,7 +18,7 @@ type MessageHandlerFunc func(ctx context.Context, msg *PgmqMessage)
 type Consumer struct {
 	QueueName      string             `required:"true"`
 	MessageHandler MessageHandlerFunc `required:"true"`
-	DbPool         *pgxpool.Pool      `required:"true"`
+	DbPool         *sql.DB            `required:"true"`
 
 	//-- configurable fields with defaults
 	MaxPollSecs        int
@@ -54,9 +57,7 @@ func (r *Consumer) Init() {
 }
 
 func (r *Consumer) createQueueIfNotExists() {
-	conn := r.getConnection()
-	defer conn.Release()
-	_, err := conn.Exec(context.Background(), `SELECT * FROM pgmq.create($1)`, r.QueueName)
+	_, err := r.DbPool.Exec(`SELECT * FROM pgmq.create($1)`, r.QueueName)
 
 	if err != nil {
 		panic("failed to create queue")
@@ -80,9 +81,6 @@ func (r *Consumer) Start() {
 
 	// Start consumer routine
 	go func() {
-		// connect for this consumer
-		conn := r.getConnection()
-		defer conn.Release()
 
 		for {
 			select {
@@ -94,7 +92,7 @@ func (r *Consumer) Start() {
 
 			default:
 				log.Println("Polling for messages...")
-				rows, err := conn.Query(context.Background(), `
+				rows, err := r.DbPool.Query(`
 					SELECT * FROM pgmq.read_with_poll(
 					  queue_name => $1,
 					  vt         => $2,
@@ -104,6 +102,13 @@ func (r *Consumer) Start() {
 				`, r.QueueName, r.VisibilityTimeout, 1, r.MaxPollSecs)
 
 				if err != nil {
+					var pgErr *pgconn.PgError
+					if errors.As(err, &pgErr) {
+						if pgErr.Code == "57P01" {
+							log.Println("Query cancelled, shutting down consumer...")
+							return // query was cancelled
+						}
+					}
 					panic(fmt.Sprintf("failed to read messages, %v", err))
 				}
 
@@ -117,19 +122,13 @@ func (r *Consumer) Start() {
 					}
 					r.msgChan <- msg
 				}
-				rows.Close()
+				err = rows.Close()
+				if err != nil {
+					log.Printf("failed to close rows: %v\n", err)
+				}
 			}
 		}
 	}()
-}
-
-func (r *Consumer) getConnection() *pgxpool.Conn {
-	conn, err := r.DbPool.Acquire(context.Background())
-
-	if err != nil {
-		panic("failed to acquire connection from pool")
-	}
-	return conn
 }
 
 func (r *Consumer) handleMessages() {
@@ -176,10 +175,7 @@ func (r *Consumer) visibilityExtender(ctx context.Context, msg *PgmqMessage) {
 }
 
 func (r *Consumer) DeleteMessage(msg *PgmqMessage) {
-	conn := r.getConnection()
-	defer conn.Release()
-	_, err := conn.Exec(context.Background(), `
-					SELECT * FROM pgmq.delete(
+	_, err := r.DbPool.Exec(`SELECT * FROM pgmq.delete(
         				queue_name => $1,
         				msg_id     => $2
               		);`, r.QueueName, msg.MsgID)
@@ -190,10 +186,7 @@ func (r *Consumer) DeleteMessage(msg *PgmqMessage) {
 }
 
 func (r *Consumer) ArchiveMessage(msg *PgmqMessage) {
-	conn := r.getConnection()
-	defer conn.Release()
-	_, err := conn.Exec(context.Background(), `
-					SELECT * FROM pgmq.archive(
+	_, err := r.DbPool.Exec(`SELECT * FROM pgmq.archive(
         				queue_name => $1,
         				msg_id     => $2
               		);`, r.QueueName, msg.MsgID)
@@ -204,10 +197,7 @@ func (r *Consumer) ArchiveMessage(msg *PgmqMessage) {
 }
 
 func (r *Consumer) PurgeQueue(msg *PgmqMessage) {
-	conn := r.getConnection()
-	defer conn.Release()
-	_, err := conn.Exec(context.Background(), `
-					SELECT * FROM pgmq.purge_queue(
+	_, err := r.DbPool.Exec(`SELECT * FROM pgmq.purge_queue(
         				queue_name => $1,
               		);`, r.QueueName)
 
@@ -218,10 +208,8 @@ func (r *Consumer) PurgeQueue(msg *PgmqMessage) {
 
 func (r *Consumer) updateVisibilityTimeout(msg *PgmqMessage) {
 	log.Printf("Extending visibility timeout for message %d by %d secs\n", msg.MsgID, r.VisibilityTimeout)
-	conn := r.getConnection()
-	defer conn.Release()
-	_, err := conn.Exec(context.Background(), `
-					SELECT * FROM pgmq.update_vt(
+
+	_, err := r.DbPool.Exec(`SELECT * FROM pgmq.update_vt(
 						queue_name => $1,
 						msg_id     => $2,
 						vt         => $3
