@@ -12,9 +12,11 @@ import (
 )
 
 func TestPgCron(t *testing.T) {
+	// Start Postgres test container
 	ctr, dsn := testutil.StartPgTestContainer()
 	defer func() { _ = ctr.Terminate(context.Background()) }()
 
+	// Create pgx pool
 	config, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		panic("failed to parse pgx config")
@@ -25,22 +27,17 @@ func TestPgCron(t *testing.T) {
 		panic("failed to create pgx pool")
 	}
 
+	// Create pgcron instance
 	p := &pgcron.PgCron{}
 	p.DbPool = dbPool
 	p.Init()
 
+	// Test scheduling a job
 	t.Run("Schedule Job", func(t *testing.T) {
-		conn, err := dbPool.Acquire(context.Background())
-		if err != nil {
-			t.Fatalf("failed to acquire connection: %v", err)
-		}
-		defer conn.Release()
 
-		_, err = conn.Exec(context.Background(), `SELECT *  FROM pgmq.create('test_queue')`)
-		if err != nil {
-			t.Fatalf("failed to create pgmq queue: %v", err)
-		}
+		initTestQueue(dbPool, t)
 
+		// Act - Schedule job to produce message every minute
 		log.Print("Scheduling test_job to run every minute")
 		p.Schedule("test_job", "* * * * *",
 			`SELECT * from pgmq.send(
@@ -49,10 +46,18 @@ func TestPgCron(t *testing.T) {
 			headers     => '{}'
 		)`)
 
+		//wait just over a minute to allow job to run
 		log.Print("Waiting for 70 seconds to allow job to run")
 		time.Sleep(70 * time.Second)
 
 		// check if message was produced in pgmq table
+
+		//get db connection
+		conn, err := dbPool.Acquire(context.Background())
+		if err != nil {
+			t.Fatalf("failed to acquire connection: %v", err)
+		}
+		defer conn.Release()
 
 		log.Print("Querying pgmq.q_test_queue table for messages")
 		rows, err := conn.Query(context.Background(), `SELECT count(0) FROM pgmq.q_test_queue`)
@@ -61,6 +66,8 @@ func TestPgCron(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to query pgmq table: %v", err)
 		}
+
+		// Assert - verify at least 1 message was produced
 		var count int
 		for rows.Next() {
 			err = rows.Scan(&count)
@@ -74,16 +81,7 @@ func TestPgCron(t *testing.T) {
 	})
 
 	t.Run("Pause Job", func(t *testing.T) {
-		conn, err := dbPool.Acquire(context.Background())
-		if err != nil {
-			t.Fatalf("failed to acquire connection: %v", err)
-		}
-		defer conn.Release()
-
-		_, err = conn.Exec(context.Background(), `SELECT *  FROM pgmq.create('test_queue')`)
-		if err != nil {
-			t.Fatalf("failed to create pgmq queue: %v", err)
-		}
+		initTestQueue(dbPool, t)
 
 		log.Print("Scheduling test_job to run every minute")
 		p.Schedule("test_job", "* * * * *",
@@ -99,6 +97,11 @@ func TestPgCron(t *testing.T) {
 		time.Sleep(70 * time.Second)
 
 		// check if message was produced in pgmq table
+		conn, err := dbPool.Acquire(context.Background())
+		if err != nil {
+			t.Fatalf("failed to acquire connection: %v", err)
+		}
+		defer conn.Release()
 
 		log.Print("Querying pgmq.q_test_queue table for messages")
 		rows, err := conn.Query(context.Background(), `SELECT count(0) FROM pgmq.q_test_queue`)
@@ -119,4 +122,26 @@ func TestPgCron(t *testing.T) {
 		}
 	})
 
+}
+
+func initTestQueue(dbPool *pgxpool.Pool, t *testing.T) {
+
+	//get db connection
+	conn, err := dbPool.Acquire(context.Background())
+	if err != nil {
+		t.Fatalf("failed to acquire connection: %v", err)
+	}
+	defer conn.Release()
+
+	// Create pgmq queue to use in the test
+	_, err = conn.Exec(context.Background(), `SELECT *  FROM pgmq.create('test_queue')`)
+	if err != nil {
+		t.Fatalf("failed to create pgmq queue: %v", err)
+	}
+
+	// Clean up pgmq queue so its empty
+	_, err = conn.Exec(context.Background(), `SELECT * FROM pgmq.purge_queue('test_queue')`)
+	if err != nil {
+		t.Fatalf("failed to truncate pgmq queue: %v", err)
+	}
 }

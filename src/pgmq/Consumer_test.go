@@ -10,13 +10,14 @@ import (
 )
 
 func TestConsumer(t *testing.T) {
+	// create context with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*1)
+
+	// Start Postgres test container
 	ctr, dsn := testutil.StartPgTestContainer()
 	defer func() { _ = ctr.Terminate(context.Background()) }()
 
-	c := &Consumer{}
-	p := &Producer{}
-
+	// create pgx pool
 	config, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		panic("failed to parse pgx config")
@@ -27,27 +28,38 @@ func TestConsumer(t *testing.T) {
 		panic("failed to create pgx pool")
 	}
 
+	// create consumer
 	var recvd *PgmqMessage = nil
 
-	// set up consumer
+	c := &Consumer{}
 	c.QueueName = "test_queue"
 	c.DbPool = dbPool
+
+	// message handler runs when a message is received
 	c.MessageHandler = func(ctx context.Context, msg *PgmqMessage) {
+		// capture received message
 		recvd = msg
+
+		// cancel context to end test
 		cancel()
 	}
 
 	c.Init()
 	c.Start()
 
-	// set up producer
+	// create producer
+	p := &Producer{}
 	p.DbPool = dbPool
 	p.Init()
+
+	// send a test message
 	p.Produce("test_queue", `{"content": "Hello, Test!"}`, "{}")
 
+	// wait for message or context timeout
 	for {
 		select {
 		case <-ctx.Done():
+			// check if message was received on cancel or timeout
 			if recvd == nil {
 				t.Errorf("Expected to receive a message, but none was received")
 			}
