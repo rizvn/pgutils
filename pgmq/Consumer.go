@@ -21,24 +21,38 @@ type Consumer struct {
 	DbPool         *sql.DB            `required:"true"`
 
 	//-- configurable fields with defaults
-	MaxPollSecs        int
-	VisibilityTimeout  int
-	ConcurrentMsgs     int
+	// PollingInterval is the number of seconds to wait between polling for new messages when none are found, default is 1 second
+	PollingInterval int
+
+	// VisibilityTimeout is the number of seconds a message is hidden from other consumers while being processed, default is 10 seconds
+	VisibilityTimeout int
+
+	// ConcurrentMsgs is the number of messages to process concurrently, default is 10
+	ConcurrentMsgs int
+
+	// ArchiveAfterHandle indicates whether to archive messages after they have been handled, default is false (messages are deleted)
 	ArchiveAfterHandle bool
+
+	// ExponentialBackoff is the number of seconds to increase the sleep time by when no messages are found, default is 1 seconds
+	ExponentialBackoff int
+
+	// ExponentialPollingLimit is the maximum number of seconds to sleep when no messages are found, default is 10 seconds
+	ExponentialPollingLimit int
 
 	//-- internal fields
 	msgChan          chan *PgmqMessage
 	consumerCtx      context.Context
 	routinesInflight sync.WaitGroup
 	consumerCancel   context.CancelFunc
+	sleepSecs        int
 }
 
 func (r *Consumer) Init() {
 	r.consumerCtx, r.consumerCancel = context.WithCancel(context.Background())
 
 	// Set defaults
-	if r.MaxPollSecs == 0 {
-		r.MaxPollSecs = 10
+	if r.PollingInterval == 0 {
+		r.PollingInterval = 1
 	}
 
 	if r.VisibilityTimeout == 0 {
@@ -48,6 +62,16 @@ func (r *Consumer) Init() {
 	if r.ConcurrentMsgs == 0 {
 		r.ConcurrentMsgs = 10
 	}
+
+	if r.ExponentialBackoff == 0 {
+		r.ExponentialBackoff = 1
+	}
+
+	if r.ExponentialPollingLimit == 0 {
+		r.ExponentialPollingLimit = 10
+	}
+
+	r.sleepSecs = r.PollingInterval
 
 	// Create queue if not exists
 	r.createQueueIfNotExists()
@@ -125,16 +149,28 @@ func (r *Consumer) Start() {
 					msgCount++
 				}
 				err = rows.Close()
-
-				if msgCount == 0 {
-					// no messages, wait before reading
-					log.Printf("No messages found, sleeing for %d seconds...\n", r.MaxPollSecs)
-					time.Sleep(time.Duration(r.MaxPollSecs) * time.Second)
-				}
-
 				if err != nil {
 					log.Printf("failed to close rows: %v\n", err)
 				}
+
+				// if no messages found
+				if msgCount == 0 {
+					// compute seconds to sleep with exponential backoff
+					r.sleepSecs = r.sleepSecs + r.ExponentialBackoff
+
+					// ensure we dont exceed cap
+					if r.sleepSecs > r.ExponentialPollingLimit {
+						r.sleepSecs = r.ExponentialPollingLimit
+					}
+
+					// no messages, wait before reading again
+					log.Printf("No messages found, sleeping for %d seconds...\n", r.sleepSecs)
+					time.Sleep(time.Duration(r.sleepSecs) * time.Second)
+				} else {
+					// reset sleep seconds, when messages are found
+					r.sleepSecs = r.PollingInterval
+				}
+
 			}
 		}
 	}()
