@@ -91,15 +91,16 @@ func (r *Consumer) Start() {
 				return
 
 			default:
-				log.Println("Polling for messages...")
+				log.Println("Fetching for messages...")
+				// dont use read_with_poll as it can be taxing on the DB under high load
+				// instead poll on client side
 				rows, err := r.DbPool.Query(`
-					SELECT * FROM pgmq.read_with_poll(
+					SELECT * FROM pgmq.read(
 					  queue_name => $1,
 					  vt         => $2,
-					  qty        => $3,
-					  max_poll_seconds  => $4
+					  qty        => $3
 					);
-				`, r.QueueName, r.VisibilityTimeout, 1, r.MaxPollSecs)
+				`, r.QueueName, r.VisibilityTimeout, 1)
 
 				if err != nil {
 					var pgErr *pgconn.PgError
@@ -112,8 +113,8 @@ func (r *Consumer) Start() {
 					panic(fmt.Sprintf("failed to read messages, %v", err))
 				}
 
+				msgCount := 0
 				msg := &PgmqMessage{}
-
 				// read message
 				for rows.Next() {
 					err := rows.Scan(&msg.MsgID, &msg.ReadCount, &msg.EnqueuedAt, &msg.VT, &msg.Message, &msg.Headers)
@@ -121,8 +122,16 @@ func (r *Consumer) Start() {
 						panic("failed to scan row")
 					}
 					r.msgChan <- msg
+					msgCount++
 				}
 				err = rows.Close()
+
+				if msgCount == 0 {
+					// no messages, wait before reading
+					log.Printf("No messages found, sleeing for %d seconds...\n", r.MaxPollSecs)
+					time.Sleep(time.Duration(r.MaxPollSecs) * time.Second)
+				}
+
 				if err != nil {
 					log.Printf("failed to close rows: %v\n", err)
 				}
