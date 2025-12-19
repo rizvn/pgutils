@@ -24,8 +24,9 @@ func TestEndToEnd(t *testing.T) {
 	dbPool.SetMaxOpenConns(10)
 
 	c := &Consumer{
-		DbPool:    dbPool,
-		QueueName: "test_queue",
+		DbPool:             dbPool,
+		QueueName:          "test_queue",
+		ExponentialBackoff: 1,
 	}
 
 	count := 0

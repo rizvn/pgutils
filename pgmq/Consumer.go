@@ -33,7 +33,7 @@ type Consumer struct {
 	// ArchiveAfterHandle indicates whether to archive messages after they have been handled, default is false (messages are deleted)
 	ArchiveAfterHandle bool
 
-	// ExponentialBackoff is the number of seconds to increase the sleep time by when no messages are found, default is 1 seconds
+	// ExponentialBackoff is the number of seconds to increase the sleep time by when no messages are found, default is 0 seconds
 	ExponentialBackoff int
 
 	// ExponentialPollingLimit is the maximum number of seconds to sleep when no messages are found, default is 10 seconds
@@ -61,10 +61,6 @@ func (r *Consumer) Init() {
 
 	if r.ConcurrentMsgs == 0 {
 		r.ConcurrentMsgs = 10
-	}
-
-	if r.ExponentialBackoff == 0 {
-		r.ExponentialBackoff = 1
 	}
 
 	if r.ExponentialPollingLimit == 0 {
