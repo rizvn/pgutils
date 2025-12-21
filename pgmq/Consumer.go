@@ -80,7 +80,7 @@ func (r *Consumer) createQueueIfNotExists() {
 	_, err := r.DbPool.Exec(`SELECT * FROM pgmq.create($1)`, r.QueueName)
 
 	if err != nil {
-		panic("failed to create queue")
+		panic(fmt.Sprintf("failed to create queue, err: %v", err))
 	}
 }
 
@@ -139,7 +139,7 @@ func (r *Consumer) Start() {
 				for rows.Next() {
 					err := rows.Scan(&msg.MsgID, &msg.ReadCount, &msg.EnqueuedAt, &msg.VT, &msg.Message, &msg.Headers)
 					if err != nil {
-						panic("failed to scan row")
+						panic(fmt.Sprintf("failed to scan row, err: %v", err))
 					}
 					r.msgChan <- msg
 					msgCount++

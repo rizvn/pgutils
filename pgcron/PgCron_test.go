@@ -3,6 +3,7 @@ package pgcron_test
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log"
 	"testing"
 	"time"
@@ -19,7 +20,7 @@ func TestPgCron(t *testing.T) {
 	// Create db pool
 	dbPool, err := sql.Open("pgx", dsn)
 	if err != nil {
-		panic("failed to create pgx pool")
+		panic(fmt.Sprintf("failed to create pgx pool, err: %v", err))
 	}
 	dbPool.SetMaxOpenConns(20)
 
