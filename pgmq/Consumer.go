@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -86,11 +86,11 @@ func (r *Consumer) createQueueIfNotExists() {
 
 func (r *Consumer) ShutdownWithWait() {
 	if r.consumerCtx != nil {
-		log.Println("Shutting down consumer...")
+		slog.Info("Shutting down consumer...")
 		r.consumerCancel()
-		log.Printf("Waiting for inflight routines to complete...")
+		slog.Info("Waiting for inflight routines to complete...")
 		r.routinesInflight.Wait()
-		log.Println("Consumer shut down complete.")
+		slog.Info("Consumer shut down complete.")
 	}
 }
 
@@ -107,11 +107,11 @@ func (r *Consumer) Start() {
 
 			// check for shutdown
 			case <-r.consumerCtx.Done():
-				log.Println("Shutting down consumer...")
+				slog.Debug("Shutting down consumer...")
 				return
 
 			default:
-				log.Println("Fetching for messages...")
+				slog.Debug("Fetching for messages...")
 				// dont use read_with_poll as it can be taxing on the DB under high load
 				// instead poll on client side
 				rows, err := r.DbPool.Query(`
@@ -126,7 +126,7 @@ func (r *Consumer) Start() {
 					var pgErr *pgconn.PgError
 					if errors.As(err, &pgErr) {
 						if pgErr.Code == "57P01" {
-							log.Println("Query cancelled, shutting down consumer...")
+							slog.Debug(fmt.Sprintf("Query cancelled, shutting down consumer.. %v", err))
 							return // query was cancelled
 						}
 					}
@@ -146,7 +146,7 @@ func (r *Consumer) Start() {
 				}
 				err = rows.Close()
 				if err != nil {
-					log.Printf("failed to close rows: %v\n", err)
+					slog.Error(fmt.Sprintf("failed to close rows: %v\n", err.Error()))
 				}
 
 				// if no messages found
@@ -160,7 +160,7 @@ func (r *Consumer) Start() {
 					}
 
 					// no messages, wait before reading again
-					log.Printf("No messages found, sleeping for %d seconds...\n", r.sleepSecs)
+					slog.Debug(fmt.Sprintf("No messages found, sleeping for %d seconds...\n", r.sleepSecs))
 					time.Sleep(time.Duration(r.sleepSecs) * time.Second)
 				} else {
 					// reset sleep seconds, when messages are found
@@ -222,7 +222,7 @@ func (r *Consumer) DeleteMessage(msg *PgmqMessage) {
               		);`, r.QueueName, msg.MsgID)
 
 	if err != nil {
-		log.Printf("failed to delete message %d: %v\n", msg.MsgID, err)
+		slog.Error(fmt.Sprintf("failed to delete message %d: %v\n", msg.MsgID, err))
 	}
 }
 
@@ -233,7 +233,7 @@ func (r *Consumer) ArchiveMessage(msg *PgmqMessage) {
               		);`, r.QueueName, msg.MsgID)
 
 	if err != nil {
-		log.Printf("failed to archive message %d: %v\n", msg.MsgID, err)
+		slog.Error(fmt.Sprintf("failed to archive message %d: %v\n", msg.MsgID, err))
 	}
 }
 
@@ -243,12 +243,12 @@ func (r *Consumer) PurgeQueue(msg *PgmqMessage) {
               		);`, r.QueueName)
 
 	if err != nil {
-		log.Printf("failed to archive message %d: %v\n", msg.MsgID, err)
+		slog.Error(fmt.Sprintf("failed to archive message %d: %v\n", msg.MsgID, err))
 	}
 }
 
 func (r *Consumer) updateVisibilityTimeout(msg *PgmqMessage) {
-	log.Printf("Extending visibility timeout for message %d by %d secs\n", msg.MsgID, r.VisibilityTimeout)
+	slog.Debug(fmt.Sprintf("Extending visibility timeout for message %d by %d secs\n", msg.MsgID, r.VisibilityTimeout))
 
 	_, err := r.DbPool.Exec(`SELECT * FROM pgmq.update_vt(
 						queue_name => $1,
@@ -257,6 +257,6 @@ func (r *Consumer) updateVisibilityTimeout(msg *PgmqMessage) {
 			  		);`, r.QueueName, msg.MsgID, r.VisibilityTimeout)
 
 	if err != nil {
-		log.Printf("failed to update visibility timeout for message %d: %v\n", msg.MsgID, err)
+		slog.Error(fmt.Sprintf("failed to update visibility timeout for message %d: %v\n", msg.MsgID, err))
 	}
 }
