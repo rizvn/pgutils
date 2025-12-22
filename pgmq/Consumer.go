@@ -250,7 +250,7 @@ func (r *Consumer) PurgeQueue(msg *PgmqMessage) {
 func (r *Consumer) updateVisibilityTimeout(msg *PgmqMessage) {
 	slog.Debug(fmt.Sprintf("Extending visibility timeout for message %d by %d secs\n", msg.MsgID, r.VisibilityTimeout))
 
-	_, err := r.DbPool.Exec(`SELECT * FROM pgmq.update_vt(
+	_, err := r.DbPool.Exec(`SELECT * FROM pgmq.set_vt(
 						queue_name => $1,
 						msg_id     => $2,
 						vt         => $3
