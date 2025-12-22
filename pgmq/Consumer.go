@@ -130,7 +130,7 @@ func (r *Consumer) Start() {
 							return // query was cancelled
 						}
 					}
-					panic(fmt.Sprintf("failed to read messages, %v", err))
+					slog.Debug(fmt.Sprintf("failed to read messages, %v", err))
 				}
 
 				msgCount := 0
