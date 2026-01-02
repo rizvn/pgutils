@@ -70,7 +70,7 @@ CREATE UNLOGGED TABLE IF NOT EXISTS cache_table (
         content BYTEA NOT NULL,
 		created_on TIMESTAMPTZ NOT NULL,
 		expires_on TIMESTAMPTZ NOT NULL
-	)`
+);
 */
 
 
