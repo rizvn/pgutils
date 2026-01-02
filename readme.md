@@ -59,9 +59,20 @@ dbPool.SetMaxOpenConns(20)
 // Create instance
 pgCache := &pgcache.PgCache{
     DbPool:    dbPool,
-    CacheName: "test",
+    CacheTable: "cache_table",
     TTL:       600, // 10 minutes
+    StartCleanup: true
 }
+
+/* Create cache table SQL
+CREATE UNLOGGED TABLE IF NOT EXISTS cache_table (
+		id TEXT PRIMARY KEY,
+        content BYTEA NOT NULL,
+		created_on TIMESTAMPTZ NOT NULL,
+		expires_on TIMESTAMPTZ NOT NULL
+	)`
+*/
+
 
 // Init instance
 pgCache.Init(dbPool)
