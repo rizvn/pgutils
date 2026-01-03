@@ -2,7 +2,8 @@ Set of utilities to work with advanced features of postgresql.
 
 - PgCache allows using unlogged tables for caching purposes.
 - Pgmq package provides a producer-consumer abstraction over pgmq extension.
-- Pgcron enables scheduling jobs using pgcron extension.
+- PgCron enables scheduling jobs using pgcron extension.
+- PgLock provides distributed locking using advisory locks in postgres.
 
 
 ## Installation
@@ -124,6 +125,22 @@ producer.Init()
 
 // send message
 producer.Produce("test_queue", `{"content": "Hello, Test!"}`, "{}")
+
+
+//------ PgLock for distributed locking ------//
+
+// Create PgLocks instance
+pgLocks := &pglock.PgLocks{
+    DbPool: dbPool,
+}
+
+
+// Acquire lock or wait until available
+lock := pgLocks.Lock("test-lock")
+
+// release lock
+lock.Unlock()
+
 ```
 
 ## Running Tests

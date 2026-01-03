@@ -37,6 +37,7 @@ func (r *PgPool) Init() error {
 	}
 
 	r.DbPool.SetMaxOpenConns(10)
+
 	slog.Info("queue connection pool connected")
 	return nil
 }
