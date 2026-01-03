@@ -23,12 +23,12 @@ func TestPgCache(t *testing.T) {
 
 	// Create PgCache instance
 	pgCache := &pgcache.PgCache{
-		DbPool:           dbPool,
-		CacheTable:       "c_test",
-		CreateCacheTable: true,
-		TTL:              600, // 10 minutes
+		DbPool:     dbPool,
+		CacheTable: "c_test",
+		TTL:        600, // 10 minutes
 	}
 	pgCache.Init()
+	pgCache.CreateCacheTable()
 
 	t.Run("Put Value", func(t *testing.T) {
 		// Test Put
@@ -80,7 +80,7 @@ func TestPgCache(t *testing.T) {
 		testID := "expired_key"
 		testContent := []byte("expired_value")
 		pgCache.PutWitTTL(testID, testContent, 1)
-		time.Sleep(2 * time.Second)
+		time.Sleep(5 * time.Second)
 		pgCache.DeleteExpired()
 		_, found := pgCache.Get(testID)
 		if found {

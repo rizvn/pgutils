@@ -14,13 +14,11 @@ type PgCache struct {
 	TTL    int
 
 	CacheTable       string `required:"true"`
-	CreateCacheTable bool   `default:"false"`
-	StartCleaner     bool   `default:"true"`
+	CleanerInterval  int    `default:"60"` // in seconds
 	cancelCleanerCtx context.CancelFunc
 }
 
 func (r *PgCache) Init() {
-	r.StartCleaner = true
 
 	if r.DbPool == nil {
 		panic("DbPool is required")
@@ -31,22 +29,12 @@ func (r *PgCache) Init() {
 	}
 
 	if r.TTL == 0 {
-		r.TTL = 3600 // Default TTL of 1 hour
-	}
-
-	if r.CreateCacheTable {
-		r.createCacheTable()
-	}
-
-	if r.StartCleaner {
-		ctx, cancel := context.WithCancel(context.Background())
-		go r.CleanUp(ctx)
-		r.cancelCleanerCtx = cancel
+		r.TTL = 86400 // Default TTL of 1 day
 	}
 
 }
 
-func (r *PgCache) createCacheTable() {
+func (r *PgCache) CreateCacheTable() {
 
 	query := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS ` + r.CacheTable + ` (
@@ -110,17 +98,22 @@ func (r *PgCache) DeleteExpired() {
 	}
 }
 
-func (r *PgCache) CleanUp(ctx context.Context) {
+func (r *PgCache) CleanUp(ctx context.Context, interval int) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		default:
-			sleepDuration := r.TTL / 2
-			time.Sleep(time.Duration(sleepDuration) * time.Second)
+			time.Sleep(time.Duration(interval) * time.Second)
 			r.DeleteExpired()
 		}
 	}
+}
+
+func (r *PgCache) StartCleaner(interval int) {
+	ctx, cancel := context.WithCancel(context.Background())
+	go r.CleanUp(ctx, interval)
+	r.cancelCleanerCtx = cancel
 }
 
 func (r *PgCache) StopCleaner() {
