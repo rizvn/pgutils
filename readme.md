@@ -45,6 +45,9 @@ import (
     
     // for pgmq consumer and producer
     "github.com/rizvn/pgutils/pgmq"
+    
+    // for pglock
+    "github.com/rizvn/pgutils/pglock"
 )
 
 // Create db pool
