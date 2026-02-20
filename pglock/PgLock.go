@@ -14,14 +14,14 @@ type PgLock struct {
 	conn     *sql.Conn
 }
 
-func (r *PgLock) Unlock() {
+func (this *PgLock) Unlock() {
 	// Release the advisory lock
 	var released bool
-	err := r.conn.QueryRowContext(context.Background(), "SELECT pg_advisory_unlock($1)", r.lockId).Scan(&released)
+	err := this.conn.QueryRowContext(context.Background(), "SELECT pg_advisory_unlock($1)", this.lockId).Scan(&released)
 	if err != nil || !released {
 		fmt.Println("Warning: Lock was not released!")
 	}
 
 	// Close the dedicated connection
-	r.conn.Close()
+	this.conn.Close()
 }

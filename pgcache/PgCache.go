@@ -18,119 +18,119 @@ type PgCache struct {
 	cancelCleanerCtx context.CancelFunc
 }
 
-func (r *PgCache) Init() {
+func (this *PgCache) Init() {
 
-	if r.DbPool == nil {
+	if this.DbPool == nil {
 		panic("DbPool is required")
 	}
 
-	if r.CacheTable == "" {
+	if this.CacheTable == "" {
 		panic("CacheTable is required")
 	}
 
-	if r.TTL == 0 {
-		r.TTL = 86400 // Default TTL of 1 day
+	if this.TTL == 0 {
+		this.TTL = 86400 // Default TTL of 1 day
 	}
 
 }
 
-func (r *PgCache) CreateCacheTable() {
+func (this *PgCache) CreateCacheTable() {
 
 	query := `
-	CREATE UNLOGGED TABLE IF NOT EXISTS ` + r.CacheTable + ` (
+	CREATE UNLOGGED TABLE IF NOT EXISTS ` + this.CacheTable + ` (
 		id TEXT PRIMARY KEY,
         content BYTEA NOT NULL,
 		created_on TIMESTAMPTZ NOT NULL,
 		expires_on TIMESTAMPTZ NOT NULL
 	)`
-	_, err := r.DbPool.Exec(query)
+	_, err := this.DbPool.Exec(query)
 	if err != nil {
 		panic("failed to create cache store: " + err.Error())
 	}
 }
 
-func (r *PgCache) Put(id string, content []byte) {
-	r.PutWitTTL(id, content, r.TTL)
+func (this *PgCache) Put(id string, content []byte) {
+	this.PutWitTTL(id, content, this.TTL)
 }
 
-func (r *PgCache) PutWitTTL(id string, content []byte, ttl int) {
+func (this *PgCache) PutWitTTL(id string, content []byte, ttl int) {
 
 	// Upsert value with expiration
 	query :=
-		`INSERT INTO ` + r.CacheTable + ` (id, content, created_on, expires_on)
+		`INSERT INTO ` + this.CacheTable + ` (id, content, created_on, expires_on)
 		 VALUES ($1, $2, NOW(), NOW() + INTERVAL '` + strconv.Itoa(ttl) + ` seconds')
 	     ON CONFLICT (id) 
          DO UPDATE 
            SET content = EXCLUDED.content, 
                created_on = EXCLUDED.created_on, 
                expires_on = EXCLUDED.expires_on`
-	_, err := r.DbPool.Exec(query, id, content)
+	_, err := this.DbPool.Exec(query, id, content)
 	if err != nil {
 		panic("failed to cache value: " + err.Error())
 	}
 }
 
-func (r *PgCache) Get(id string) ([]byte, bool) {
+func (this *PgCache) Get(id string) ([]byte, bool) {
 
 	var content []byte
-	query := `SELECT content FROM ` + r.CacheTable + ` WHERE id = $1 AND expires_on > NOW()`
-	err := r.DbPool.QueryRow(query, id).Scan(&content)
+	query := `SELECT content FROM ` + this.CacheTable + ` WHERE id = $1 AND expires_on > NOW()`
+	err := this.DbPool.QueryRow(query, id).Scan(&content)
 	if err != nil {
 		return nil, false
 	}
 	return content, true
 }
 
-func (r *PgCache) Delete(id string) {
+func (this *PgCache) Delete(id string) {
 
-	query := `DELETE FROM ` + r.CacheTable + ` WHERE id = $1`
-	_, err := r.DbPool.Exec(query, id)
+	query := `DELETE FROM ` + this.CacheTable + ` WHERE id = $1`
+	_, err := this.DbPool.Exec(query, id)
 	if err != nil {
 		panic("failed to delete cache entry: " + err.Error())
 	}
 }
 
-func (r *PgCache) DeleteExpired() {
-	query := `DELETE FROM ` + r.CacheTable + ` WHERE expires_on <= NOW()`
-	_, err := r.DbPool.Exec(query)
+func (this *PgCache) DeleteExpired() {
+	query := `DELETE FROM ` + this.CacheTable + ` WHERE expires_on <= NOW()`
+	_, err := this.DbPool.Exec(query)
 	if err != nil {
 		panic("failed to delete expired cache entries: " + err.Error())
 	}
 }
 
-func (r *PgCache) CleanUp(ctx context.Context, interval int) {
+func (this *PgCache) CleanUp(ctx context.Context, interval int) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		default:
 			time.Sleep(time.Duration(interval) * time.Second)
-			r.DeleteExpired()
+			this.DeleteExpired()
 		}
 	}
 }
 
-func (r *PgCache) StartCleaner(interval int) {
+func (this *PgCache) StartCleaner(interval int) {
 	ctx, cancel := context.WithCancel(context.Background())
-	go r.CleanUp(ctx, interval)
-	r.cancelCleanerCtx = cancel
+	go this.CleanUp(ctx, interval)
+	this.cancelCleanerCtx = cancel
 }
 
-func (r *PgCache) StopCleaner() {
-	r.cancelCleanerCtx()
+func (this *PgCache) StopCleaner() {
+	this.cancelCleanerCtx()
 }
 
-func (r *PgCache) ClearCacheStore() {
-	query := `TRUNCATE TABLE ` + r.CacheTable
-	_, err := r.DbPool.Exec(query)
+func (this *PgCache) ClearCacheStore() {
+	query := `TRUNCATE TABLE ` + this.CacheTable
+	_, err := this.DbPool.Exec(query)
 	if err != nil {
 		panic("failed to clear cache store: " + err.Error())
 	}
 }
 
-func (r *PgCache) DropCacheStore() {
-	query := `DROP TABLE IF EXISTS ` + r.CacheTable
-	_, err := r.DbPool.Exec(query)
+func (this *PgCache) DropCacheStore() {
+	query := `DROP TABLE IF EXISTS ` + this.CacheTable
+	_, err := this.DbPool.Exec(query)
 	if err != nil {
 		panic("failed to drop cache store: " + err.Error())
 	}

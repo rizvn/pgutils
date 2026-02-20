@@ -25,18 +25,18 @@ type PgPool struct {
 	DSN string
 }
 
-func (r *PgPool) Init() error {
-	if r.DSN == "" {
-		r.DSN = fmt.Sprintf("postgres://%s:%s@%s:%s/%s%s", r.DbUser, r.DbPass, r.DbHost, r.DbPort, r.DBName, r.DBUrlParams)
+func (this *PgPool) Init() error {
+	if this.DSN == "" {
+		this.DSN = fmt.Sprintf("postgres://%s:%s@%s:%s/%s%s", this.DbUser, this.DbPass, this.DbHost, this.DbPort, this.DBName, this.DBUrlParams)
 	}
 	var err error
-	r.DbPool, err = sql.Open("pgx", r.DSN)
+	this.DbPool, err = sql.Open("pgx", this.DSN)
 
 	if err != nil {
 		return fmt.Errorf("failed to open database connection: %v", err)
 	}
 
-	r.DbPool.SetMaxOpenConns(10)
+	this.DbPool.SetMaxOpenConns(10)
 
 	slog.Info("queue connection pool connected")
 	return nil
