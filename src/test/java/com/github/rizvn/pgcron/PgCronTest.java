@@ -24,7 +24,6 @@ class PgCronTest extends DbTest {
     void setUp() {
         // Create PgCron instance with the test dataSource from DbTest
         pgCron = new PgCron(dataSource);
-        pgCron.init();
     }
 
     @Test
