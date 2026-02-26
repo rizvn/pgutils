@@ -1,5 +1,6 @@
 package com.github.rizvn.pgmq;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -11,6 +12,7 @@ import java.util.concurrent.*;
 
 public class Consumer {
     static final Logger logger = LoggerFactory.getLogger(Consumer.class);
+    static final ObjectMapper objectMapper = new ObjectMapper();
 
     final String queueName;
     final MessageHandler messageHandler;
@@ -99,7 +101,8 @@ public class Consumer {
                         msg.setEnqueuedAt(rs.getTimestamp(3).toInstant());
                         msg.setVT(rs.getTimestamp(4).toInstant());
                         msg.setMessage(rs.getString(5));
-                        msg.setHeaders((Map<String, Object>) rs.getObject(6));
+
+                        //msg.setHeaders(headers);
 
                         // add to processing queue
                         buffer.put(msg);
