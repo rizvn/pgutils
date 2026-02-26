@@ -5,13 +5,13 @@
          http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.pgutils</groupId>
-    <artifactId>java-pgutils</artifactId>
+    <groupId>com.github.rizvn</groupId>
+    <artifactId>pgutils</artifactId>
     <version>1.0.0</version>
     <packaging>jar</packaging>
 
-    <name>Java PostgreSQL Utilities</name>
-    <description>PostgreSQL utilities library for Java</description>
+    <name>Pg Utils</name>
+    <description>PostgreSQL utilities library</description>
 
     <properties>
         <maven.compiler.source>21</maven.compiler.source>
