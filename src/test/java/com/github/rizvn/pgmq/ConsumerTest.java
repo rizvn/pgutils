@@ -61,7 +61,7 @@ class ConsumerTest extends DbTest {
     }
 
     @Test
-    void testConsumerWithMultipleMessages() throws SQLException, InterruptedException {
+    void testConsumerWithMultipleMessages() throws InterruptedException {
         // Create a latch that waits for 3 messages
         CountDownLatch multiMessageLatch = new CountDownLatch(3);
         final int[] messageCount = {0};
