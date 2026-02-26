@@ -9,6 +9,6 @@ public interface MessageHandler {
      *
      * @param msg the message to handle
      */
-    void handle(Consumer.PgmqMessage msg);
+    void handle(PgmqMessage msg);
 }
 

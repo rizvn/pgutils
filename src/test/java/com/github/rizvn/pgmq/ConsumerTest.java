@@ -14,40 +14,32 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class ConsumerTest extends DbTest {
 
-    private Consumer consumer;
     private Producer producer;
     private static final String QUEUE_NAME = "test_queue";
-    private CountDownLatch messageReceivedLatch;
-    private Consumer.PgmqMessage receivedMessage;
+
+    PgmqMessage receivedMessage = null;
 
     @BeforeEach
     void setUp() throws SQLException {
         // Setup queue for this test
         setupQueue(QUEUE_NAME);
 
-        // Initialize latch for synchronization
-        messageReceivedLatch = new CountDownLatch(1);
         receivedMessage = null;
 
         // Create producer
         producer = new Producer(dataSource);
-
-        // Create consumer with message handler
-        consumer = new Consumer(QUEUE_NAME, msg -> {
-            // Capture received message
-            receivedMessage = msg;
-            // Signal that message was received
-            messageReceivedLatch.countDown();
-        }, dataSource);
     }
 
     @Test
-    void testConsumer() throws SQLException, InterruptedException {
+    void testConsumer() throws InterruptedException {
+
+        var messageReceivedLatch = new CountDownLatch(1);
+
         // Create consumer with message handler
-        Consumer testConsumer = new Consumer(QUEUE_NAME, msg -> {
+        Consumer testConsumer = new Consumer(dataSource, QUEUE_NAME, msg -> {
             receivedMessage = msg;
             messageReceivedLatch.countDown();
-        }, dataSource);
+        });
 
         // Start consumer
         testConsumer.start();
@@ -75,10 +67,10 @@ class ConsumerTest extends DbTest {
         final int[] messageCount = {0};
 
         // Create a new consumer with a message handler that counts messages
-        Consumer multiConsumer = new Consumer(QUEUE_NAME, msg -> {
+        Consumer multiConsumer = new Consumer(dataSource, QUEUE_NAME, msg -> {
             messageCount[0]++;
             multiMessageLatch.countDown();
-        }, dataSource);
+        });
 
         // Start consumer
         multiConsumer.start();
@@ -101,15 +93,13 @@ class ConsumerTest extends DbTest {
 
     @Test
     void testConsumerArchivesMessages() throws SQLException, InterruptedException {
-        // Configure consumer to archive messages after handling
-        consumer.archiveAfterHandle = true;
 
         // Create latch for message received
         CountDownLatch latch = new CountDownLatch(1);
-        Consumer archiveConsumer = new Consumer(QUEUE_NAME, msg -> {
+        Consumer archiveConsumer = new Consumer(dataSource, QUEUE_NAME, msg -> {
             receivedMessage = msg;
             latch.countDown();
-        }, dataSource);
+        });
         archiveConsumer.archiveAfterHandle = true;
 
         // Start consumer

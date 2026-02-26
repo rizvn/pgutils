@@ -5,14 +5,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.sql.DataSource;
-import java.sql.*;
-import java.time.Instant;
+import java.sql.SQLException;
 import java.util.Map;
 import java.util.concurrent.*;
 
 public class Consumer {
     static final Logger logger = LoggerFactory.getLogger(Consumer.class);
-    static final ObjectMapper objectMapper = new ObjectMapper();
 
     final String queueName;
     final MessageHandler messageHandler;
@@ -28,6 +26,7 @@ public class Consumer {
 
     // Internal fields
     final BlockingQueue<PgmqMessage> buffer = new LinkedBlockingQueue<>(concurrentMsgs);
+    final ObjectMapper objectMapper = new ObjectMapper();
 
     // Using virtual threads for handling messages and polling
     final ExecutorService threadPool = Executors.newVirtualThreadPerTaskExecutor();
@@ -35,7 +34,7 @@ public class Consumer {
 
     int sleepSecs;
 
-    public Consumer(String queueName, MessageHandler messageHandler, DataSource dataSource) {
+    public Consumer(DataSource dataSource, String queueName, MessageHandler messageHandler ) {
         this.queueName = queueName;
         this.messageHandler = messageHandler;
         this.dataSource = dataSource;
@@ -73,7 +72,7 @@ public class Consumer {
         running = false;
         threadPool.shutdown();
         try {
-            if (!threadPool.awaitTermination(30, TimeUnit.SECONDS)) {
+            if (!threadPool.awaitTermination(1, TimeUnit.SECONDS)) {
                 threadPool.shutdownNow();
             }
         } catch (InterruptedException e) {
@@ -101,8 +100,7 @@ public class Consumer {
                         msg.setEnqueuedAt(rs.getTimestamp(3).toInstant());
                         msg.setVT(rs.getTimestamp(4).toInstant());
                         msg.setMessage(rs.getString(5));
-
-                        //msg.setHeaders(headers);
+                        msg.setHeaders(toMap(rs.getString(6)));
 
                         // add to processing queue
                         buffer.put(msg);
@@ -203,29 +201,19 @@ public class Consumer {
         }
     }
 
-
-    // PgmqMessage class (simplified, needs to be expanded as per actual schema)
-    public static class PgmqMessage {
-        long msgID;
-        int readCount;
-        Instant enqueuedAt;
-        Instant vt;
-        String message;
-        Map<String, Object> headers;
-        // getters and setters
-        public long getMsgID() { return msgID; }
-        public void setMsgID(long msgID) { this.msgID = msgID; }
-        public int getReadCount() { return readCount; }
-        public void setReadCount(int readCount) { this.readCount = readCount; }
-        public Instant getEnqueuedAt() { return enqueuedAt; }
-        public void setEnqueuedAt(Instant enqueuedAt) { this.enqueuedAt = enqueuedAt; }
-        public Instant getVT() { return vt; }
-        public void setVT(Instant vt) { this.vt = vt; }
-        public String getMessage() { return message; }
-        public void setMessage(String message) { this.message = message; }
-        public Map<String, Object> getHeaders() { return headers; }
-        public void setHeaders(Map<String, Object> headers) { this.headers = headers; }
+    private Map<String, String> toMap(String json) {
+        if (json == null || json.trim().isEmpty()) {
+            return Map.of();
+        }
+        try {
+            return objectMapper.readValue(json,
+                objectMapper.getTypeFactory().constructMapType(Map.class, String.class, String.class));
+        } catch (Exception e) {
+            logger.warn("Failed to parse headers JSON: {}", json, e);
+            return Map.of();
+        }
     }
+
 
 
   public void setPollingInterval(int pollingInterval) { this.pollingInterval = pollingInterval; }
