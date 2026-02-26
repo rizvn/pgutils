@@ -1,4 +1,4 @@
-package com.github.rizvn.pgmq;
+package com.github.rizvn;
 
 import org.apache.tomcat.jdbc.pool.DataSource;
 import org.junit.jupiter.api.AfterAll;

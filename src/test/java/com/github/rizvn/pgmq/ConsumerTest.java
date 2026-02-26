@@ -1,5 +1,6 @@
 package com.github.rizvn.pgmq;
 
+import com.github.rizvn.DbTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
