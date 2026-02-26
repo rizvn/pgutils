@@ -12,11 +12,6 @@ public class PgCron {
         this.dataSource = dataSource;
     }
 
-    public void init() {
-        if (dataSource == null) {
-            throw new IllegalArgumentException("DataSource is required");
-        }
-    }
 
     public void schedule(String jobName, String schedule, String command) {
         try (Connection conn = dataSource.getConnection();
