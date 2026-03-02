@@ -25,10 +25,7 @@ func TestPgCron(t *testing.T) {
 	dbPool.SetMaxOpenConns(20)
 
 	// Create pgcron instance
-	p := &pgcron.PgCron{
-		DbPool: dbPool,
-	}
-	p.Init()
+	p := pgcron.NewPgCron(dbPool)
 
 	// Test scheduling a job
 	t.Run("Schedule Job", func(t *testing.T) {

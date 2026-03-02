@@ -1,4 +1,4 @@
-package pgmq
+package pgmq_test
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rizvn/pgutils/pgmq"
 	"github.com/rizvn/pgutils/testutil"
 )
 
@@ -25,31 +26,22 @@ func TestConsumer(t *testing.T) {
 	dbPool.SetMaxOpenConns(20)
 
 	// create consumer
-	var recvd *PgmqMessage = nil
+	var recvd *pgmq.PgmqMessage = nil
 
-	c := &Consumer{
-		DbPool:    dbPool,
-		QueueName: "test_queue",
-	}
+	c := pgmq.NewConsumer(dbPool, "test_queue",
+		// message handler runs when a message is received
+		func(ctx context.Context, msg *pgmq.PgmqMessage) {
+			// capture received message
+			recvd = msg
 
-	// message handler runs when a message is received
-	c.MessageHandler = func(ctx context.Context, msg *PgmqMessage) {
-		// capture received message
-		recvd = msg
+			// cancel context to end test
+			cancel()
+		})
 
-		// cancel context to end test
-		cancel()
-	}
-
-	c.Init()
 	c.Start()
 
 	// create producer
-	p := &Producer{
-		DbPool: dbPool,
-	}
-
-	p.Init()
+	p := pgmq.NewProducer(dbPool)
 
 	// send a test message
 	p.Produce("test_queue", `{"content": "Hello, Test!"}`, "{}")

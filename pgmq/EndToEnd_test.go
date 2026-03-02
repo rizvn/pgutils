@@ -1,4 +1,4 @@
-package pgmq
+package pgmq_test
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/rizvn/pgutils/pgmq"
 	"github.com/rizvn/pgutils/testutil"
 )
 
@@ -23,17 +24,11 @@ func TestEndToEnd(t *testing.T) {
 	}
 	dbPool.SetMaxOpenConns(10)
 
-	c := &Consumer{
-		DbPool:             dbPool,
-		QueueName:          "test_queue",
-		ExponentialBackoff: 1,
-	}
-
 	count := 0
 	done := make(chan bool, 1)
 
 	// message handler runs when a message is received
-	c.MessageHandler = func(ctx context.Context, msg *PgmqMessage) {
+	handler := func(ctx context.Context, msg *pgmq.PgmqMessage) {
 
 		fmt.Printf("Received message: %v\n", msg)
 		count++
@@ -43,15 +38,12 @@ func TestEndToEnd(t *testing.T) {
 
 	}
 
-	c.Init()
+	c := pgmq.NewConsumer(dbPool, "test_queue", handler, pgmq.WithExponentialBackoff(1))
+
 	c.Start()
 
 	// create producer
-	p := &Producer{
-		DbPool: dbPool,
-	}
-
-	p.Init()
+	p := pgmq.NewProducer(dbPool)
 
 	// produce 100 messages
 	for i := 0; i < 100; i++ {

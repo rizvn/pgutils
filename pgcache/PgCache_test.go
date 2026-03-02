@@ -22,12 +22,9 @@ func TestPgCache(t *testing.T) {
 	dbPool.SetMaxOpenConns(20)
 
 	// Create PgCache instance
-	pgCache := &pgcache.PgCache{
-		DbPool:     dbPool,
-		CacheTable: "c_test",
-		TTL:        600, // 10 minutes
-	}
-	pgCache.Init()
+	// 600 seconds TTL (10 minutes) for testing
+	pgCache := pgcache.NewPgCache(dbPool, "c_test", pgcache.WithTTL(600))
+
 	pgCache.CreateCacheTable()
 
 	t.Run("Put Value", func(t *testing.T) {

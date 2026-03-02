@@ -8,8 +8,15 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-type PgLocks struct {
+type PgLockHelper struct {
 	DbPool *sql.DB `required:"true"`
+}
+
+func NewPgLockHelper(dbPool *sql.DB) *PgLockHelper {
+	p := &PgLockHelper{
+		DbPool: dbPool,
+	}
+	return p
 }
 
 // hash string to int64 using FNV-1a
@@ -19,7 +26,7 @@ func hashLock(lockName string) int64 {
 	return int64(h.Sum64())
 }
 
-func (r *PgLocks) Lock(lockName string) *PgLock {
+func (r *PgLockHelper) Lock(lockName string) *PgLock {
 	// Get a dedicated connection for this lock
 	conn, err := r.DbPool.Conn(context.Background())
 	if err != nil {

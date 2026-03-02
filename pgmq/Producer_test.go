@@ -1,10 +1,11 @@
-package pgmq
+package pgmq_test
 
 import (
 	"context"
 	"database/sql"
 	"testing"
 
+	"github.com/rizvn/pgutils/pgmq"
 	"github.com/rizvn/pgutils/testutil"
 )
 
@@ -35,10 +36,7 @@ func TestProducer(t *testing.T) {
 	// Act
 
 	// Create producer
-	p := &Producer{
-		DbPool: dbPool,
-	}
-	p.Init()
+	p := pgmq.NewProducer(dbPool)
 
 	// Produce a message
 	p.Produce("test_queue", `{"content": "Hello, World!"}`, "{}")

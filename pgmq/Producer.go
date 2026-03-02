@@ -11,18 +11,19 @@ type Producer struct {
 	DbPool *sql.DB `required:"true"`
 }
 
-func (this *Producer) Init() {
-	if this.DbPool == nil {
-		panic("DbPool is required")
+func NewProducer(pool *sql.DB) *Producer {
+	s := &Producer{
+		DbPool: pool,
 	}
+	return s
 }
 
-func (this *Producer) Produce(queueName, message, headers string) {
+func (s *Producer) Produce(queueName, message, headers string) {
 	if headers == "" {
 		headers = "{}"
 	}
 
-	_, err := this.DbPool.Exec(`SELECT * from pgmq.send(
+	_, err := s.DbPool.Exec(`SELECT * from pgmq.send(
 									  queue_name  => $1,
 									  msg         => $2,
 									  headers     => $3

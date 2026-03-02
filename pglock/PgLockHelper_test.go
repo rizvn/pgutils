@@ -23,13 +23,11 @@ func TestPgLock(t *testing.T) {
 	}
 	dbPool.SetMaxOpenConns(20)
 
-	// Create PgLocks instance
-	pgLocks := &pglock.PgLocks{
-		DbPool: dbPool,
-	}
+	// Create PgLockHelper instance
+	pgLockHelper := pglock.NewPgLockHelper(dbPool)
 
 	t.Run("Lock and unlock", func(t *testing.T) {
-		lock := pgLocks.Lock("test-lock")
+		lock := pgLockHelper.Lock("test-lock")
 		lock.Unlock()
 	})
 
@@ -42,7 +40,7 @@ func TestPgLock(t *testing.T) {
 		go func() {
 			id := 1
 			fmt.Println("Goroutine 1 trying to acquire lock")
-			lock := pgLocks.Lock("test-lock")
+			lock := pgLockHelper.Lock("test-lock")
 			routineId = id
 
 			fmt.Println("Acquired lock 1")
@@ -66,7 +64,7 @@ func TestPgLock(t *testing.T) {
 		go func() {
 			id := 2
 			fmt.Println("Goroutine 2 trying to acquire lock")
-			lock := pgLocks.Lock("test-lock")
+			lock := pgLockHelper.Lock("test-lock")
 			routineId = id
 
 			fmt.Println("Acquired lock 2")
@@ -89,7 +87,7 @@ func TestPgLock(t *testing.T) {
 		go func() {
 			id := 3
 			fmt.Println("Goroutine 3 trying to acquire lock")
-			lock := pgLocks.Lock("test-lock")
+			lock := pgLockHelper.Lock("test-lock")
 			routineId = id
 
 			fmt.Println("Acquired lock 3")
@@ -111,7 +109,7 @@ func TestPgLock(t *testing.T) {
 
 		wg.Wait()
 
-		//pgLocks.Unlock("test-lock")
+		//pgLockHelper.Unlock("test-lock")
 	})
 
 }

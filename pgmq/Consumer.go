@@ -47,57 +47,82 @@ type Consumer struct {
 	sleepSecs        int
 }
 
-func (this *Consumer) Init() {
-	this.consumerCtx, this.consumerCancel = context.WithCancel(context.Background())
+type ConsumerModifier func(*Consumer)
 
-	// Set defaults
-	if this.PollingInterval == 0 {
-		this.PollingInterval = 1
+func WithPollingInterval(secs int) ConsumerModifier {
+	return func(c *Consumer) {
+		c.PollingInterval = secs
 	}
-
-	if this.VisibilityTimeout == 0 {
-		this.VisibilityTimeout = 10
-	}
-
-	if this.ConcurrentMsgs == 0 {
-		this.ConcurrentMsgs = 10
-	}
-
-	if this.ExponentialPollingLimit == 0 {
-		this.ExponentialPollingLimit = 10
-	}
-
-	this.sleepSecs = this.PollingInterval
-
-	// Create queue if not exists
-	this.createQueueIfNotExists()
-
-	this.routinesInflight = sync.WaitGroup{}
-	this.msgChan = make(chan *PgmqMessage, this.ConcurrentMsgs)
 }
 
-func (this *Consumer) createQueueIfNotExists() {
-	_, err := this.DbPool.Exec(`SELECT * FROM pgmq.create($1)`, this.QueueName)
+func WithVisibilityTimeout(secs int) ConsumerModifier {
+	return func(c *Consumer) {
+		c.VisibilityTimeout = secs
+	}
+}
+
+func WithConcurrentMsgs(count int) ConsumerModifier {
+	return func(c *Consumer) {
+		c.ConcurrentMsgs = count
+	}
+}
+
+func WithExponentialBackoff(secs int) ConsumerModifier {
+	return func(c *Consumer) {
+		c.ExponentialBackoff = secs
+	}
+}
+
+func NewConsumer(pool *sql.DB, queueName string, handlerFunc MessageHandlerFunc, mods ...ConsumerModifier) *Consumer {
+	c := &Consumer{
+		DbPool:                  pool,
+		QueueName:               queueName,
+		MessageHandler:          handlerFunc,
+		PollingInterval:         1,
+		VisibilityTimeout:       10,
+		ConcurrentMsgs:          10,
+		ExponentialPollingLimit: 10,
+	}
+
+	// apply options
+	for _, opt := range mods {
+		opt(c)
+	}
+
+	c.consumerCtx, c.consumerCancel = context.WithCancel(context.Background())
+
+	c.sleepSecs = c.PollingInterval
+
+	// Create queue if not exists
+	c.createQueueIfNotExists()
+
+	c.routinesInflight = sync.WaitGroup{}
+	c.msgChan = make(chan *PgmqMessage, c.ConcurrentMsgs)
+	return c
+}
+
+func (s *Consumer) createQueueIfNotExists() {
+	_, err := s.DbPool.Exec(`SELECT * FROM pgmq.create($1)`, s.QueueName)
 
 	if err != nil {
 		panic(fmt.Sprintf("failed to create queue, err: %v", err))
 	}
 }
 
-func (this *Consumer) ShutdownWithWait() {
-	if this.consumerCtx != nil {
+func (s *Consumer) ShutdownWithWait() {
+	if s.consumerCtx != nil {
 		slog.Info("Shutting down consumer...")
-		this.consumerCancel()
+		s.consumerCancel()
 		slog.Info("Waiting for inflight routines to complete...")
-		this.routinesInflight.Wait()
+		s.routinesInflight.Wait()
 		slog.Info("Consumer shut down complete.")
 	}
 }
 
-func (this *Consumer) Start() {
+func (s *Consumer) Start() {
 
 	// Start message handler
-	go this.handleMessages()
+	go s.handleMessages()
 
 	// Start consumer routine
 	go func() {
@@ -106,7 +131,7 @@ func (this *Consumer) Start() {
 			select {
 
 			// check for shutdown
-			case <-this.consumerCtx.Done():
+			case <-s.consumerCtx.Done():
 				slog.Debug("Shutting down consumer...")
 				return
 
@@ -114,13 +139,13 @@ func (this *Consumer) Start() {
 				slog.Debug("Fetching for messages...")
 				// dont use read_with_poll as it can be taxing on the DB under high load
 				// instead poll on client side
-				rows, err := this.DbPool.Query(`
+				rows, err := s.DbPool.Query(`
 					SELECT * FROM pgmq.read(
 					  queue_name => $1,
 					  vt         => $2,
 					  qty        => $3
 					);
-				`, this.QueueName, this.VisibilityTimeout, 1)
+				`, s.QueueName, s.VisibilityTimeout, 1)
 
 				if err != nil {
 					var pgErr *pgconn.PgError
@@ -141,7 +166,7 @@ func (this *Consumer) Start() {
 					if err != nil {
 						panic(fmt.Sprintf("failed to scan row, err: %v", err))
 					}
-					this.msgChan <- msg
+					s.msgChan <- msg
 					msgCount++
 				}
 				err = rows.Close()
@@ -152,19 +177,19 @@ func (this *Consumer) Start() {
 				// if no messages found
 				if msgCount == 0 {
 					// compute seconds to sleep with exponential backoff
-					this.sleepSecs = this.sleepSecs + this.ExponentialBackoff
+					s.sleepSecs = s.sleepSecs + s.ExponentialBackoff
 
 					// ensure we dont exceed cap
-					if this.sleepSecs > this.ExponentialPollingLimit {
-						this.sleepSecs = this.ExponentialPollingLimit
+					if s.sleepSecs > s.ExponentialPollingLimit {
+						s.sleepSecs = s.ExponentialPollingLimit
 					}
 
 					// no messages, wait before reading again
-					slog.Debug(fmt.Sprintf("No messages found, sleeping for %d seconds...\n", this.sleepSecs))
-					time.Sleep(time.Duration(this.sleepSecs) * time.Second)
+					slog.Debug(fmt.Sprintf("No messages found, sleeping for %d seconds...\n", s.sleepSecs))
+					time.Sleep(time.Duration(s.sleepSecs) * time.Second)
 				} else {
 					// reset sleep seconds, when messages are found
-					this.sleepSecs = this.PollingInterval
+					s.sleepSecs = s.PollingInterval
 				}
 
 			}
@@ -172,27 +197,27 @@ func (this *Consumer) Start() {
 	}()
 }
 
-func (this *Consumer) handleMessages() {
+func (s *Consumer) handleMessages() {
 	for {
 		// wait for message
-		msg := <-this.msgChan
+		msg := <-s.msgChan
 
 		// process message in a new goroutine
 		go func() {
-			this.routinesInflight.Add(1)
-			defer this.routinesInflight.Done()
+			s.routinesInflight.Add(1)
+			defer s.routinesInflight.Done()
 
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			this.visibilityExtender(ctx, msg)
-			this.MessageHandler(context.Background(), msg)
+			s.visibilityExtender(ctx, msg)
+			s.MessageHandler(context.Background(), msg)
 			cancel()
 
-			if this.ArchiveAfterHandle {
-				this.ArchiveMessage(msg)
+			if s.ArchiveAfterHandle {
+				s.ArchiveMessage(msg)
 			} else {
-				this.DeleteMessage(msg)
+				s.DeleteMessage(msg)
 			}
 		}()
 	}
@@ -200,13 +225,13 @@ func (this *Consumer) handleMessages() {
 
 // visibilityExtender periodically extends the visibility timeout of a message
 // whilst the message is being processed so other processes cannot read it
-func (this *Consumer) visibilityExtender(ctx context.Context, msg *PgmqMessage) {
-	ticker := time.NewTicker(time.Duration(this.VisibilityTimeout/2) * time.Second)
+func (s *Consumer) visibilityExtender(ctx context.Context, msg *PgmqMessage) {
+	ticker := time.NewTicker(time.Duration(s.VisibilityTimeout/2) * time.Second)
 	go func() {
 		for {
 			select {
 			case <-ticker.C:
-				this.updateVisibilityTimeout(msg)
+				s.updateVisibilityTimeout(msg)
 			case <-ctx.Done():
 				ticker.Stop()
 				return
@@ -215,46 +240,46 @@ func (this *Consumer) visibilityExtender(ctx context.Context, msg *PgmqMessage) 
 	}()
 }
 
-func (this *Consumer) DeleteMessage(msg *PgmqMessage) {
-	_, err := this.DbPool.Exec(`SELECT * FROM pgmq.delete(
+func (s *Consumer) DeleteMessage(msg *PgmqMessage) {
+	_, err := s.DbPool.Exec(`SELECT * FROM pgmq.delete(
         				queue_name => $1,
         				msg_id     => $2
-              		);`, this.QueueName, msg.MsgID)
+              		);`, s.QueueName, msg.MsgID)
 
 	if err != nil {
 		slog.Error(fmt.Sprintf("failed to delete message %d: %v\n", msg.MsgID, err))
 	}
 }
 
-func (this *Consumer) ArchiveMessage(msg *PgmqMessage) {
-	_, err := this.DbPool.Exec(`SELECT * FROM pgmq.archive(
+func (s *Consumer) ArchiveMessage(msg *PgmqMessage) {
+	_, err := s.DbPool.Exec(`SELECT * FROM pgmq.archive(
         				queue_name => $1,
         				msg_id     => $2
-              		);`, this.QueueName, msg.MsgID)
+              		);`, s.QueueName, msg.MsgID)
 
 	if err != nil {
 		slog.Error(fmt.Sprintf("failed to archive message %d: %v\n", msg.MsgID, err))
 	}
 }
 
-func (this *Consumer) PurgeQueue(msg *PgmqMessage) {
-	_, err := this.DbPool.Exec(`SELECT * FROM pgmq.purge_queue(
+func (s *Consumer) PurgeQueue(msg *PgmqMessage) {
+	_, err := s.DbPool.Exec(`SELECT * FROM pgmq.purge_queue(
         				queue_name => $1,
-              		);`, this.QueueName)
+              		);`, s.QueueName)
 
 	if err != nil {
 		slog.Error(fmt.Sprintf("failed to archive message %d: %v\n", msg.MsgID, err))
 	}
 }
 
-func (this *Consumer) updateVisibilityTimeout(msg *PgmqMessage) {
-	slog.Debug(fmt.Sprintf("Extending visibility timeout for message %d by %d secs\n", msg.MsgID, this.VisibilityTimeout))
+func (s *Consumer) updateVisibilityTimeout(msg *PgmqMessage) {
+	slog.Debug(fmt.Sprintf("Extending visibility timeout for message %d by %d secs\n", msg.MsgID, s.VisibilityTimeout))
 
-	_, err := this.DbPool.Exec(`SELECT * FROM pgmq.set_vt(
+	_, err := s.DbPool.Exec(`SELECT * FROM pgmq.set_vt(
 						queue_name => $1,
 						msg_id     => $2,
 						vt         => $3
-			  		);`, this.QueueName, msg.MsgID, this.VisibilityTimeout)
+			  		);`, s.QueueName, msg.MsgID, s.VisibilityTimeout)
 
 	if err != nil {
 		slog.Error(fmt.Sprintf("failed to update visibility timeout for message %d: %v\n", msg.MsgID, err))
