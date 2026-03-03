@@ -27,11 +27,6 @@ func TestPgPoolConnection(t *testing.T) {
 	dbPool.DSN = dsn
 
 	t.Run("Test connection", func(t *testing.T) {
-		value := 0
-		err := dbPool.DbPool.QueryRow("SELECT 1").Scan(&value)
-		if err != nil {
-			t.Fatalf("failed to connect to database: %v", err)
-		} // simple query to ensure connection is working
-
+		dbPool.Connect()
 	})
 }

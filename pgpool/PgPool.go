@@ -1,6 +1,7 @@
 package pgpool
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log/slog"
@@ -23,6 +24,14 @@ type PgPool struct {
 
 	// or set dsn
 	DSN string
+}
+
+func (s *PgPool) Connect() {
+	rows, err := s.DbPool.QueryContext(context.Background(), "SELECT 1")
+	defer func() { _ = rows.Close() }()
+	if err != nil {
+		panic(fmt.Sprintf("failed to connect to database: %v", err))
+	}
 }
 
 func NewPgPool(dbHost, dbPort, dbUser, dbPass, dbName, dbUrlParams string) (*PgPool, error) {
