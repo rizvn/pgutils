@@ -12,20 +12,20 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-type CacheError struct {
+type Err struct {
 	message string
 }
 
-func (e *CacheError) Error() string {
+func (e *Err) Error() string {
 	return e.message
 }
 
-func NewCacheError(message string, wrapErr error) *CacheError {
+func NewErr(message string, wrapErr error) *Err {
 	// get refenece to caller function
 	pc, _, line, _ := runtime.Caller(1)
 	funcName := runtime.FuncForPC(pc).Name()
 
-	e := &CacheError{}
+	e := &Err{}
 	e.message = fmt.Sprintf("\nError at: %s : %d\nMessage:%s\n%v", funcName, line, message, wrapErr)
 	return e
 }
@@ -74,7 +74,7 @@ func (s *PgCache) CreateCacheTable() error {
 	)`
 	_, err := s.DbPool.Exec(query)
 	if err != nil {
-		return NewCacheError("failed to create cache store", err)
+		return NewErr("failed to create cache store", err)
 	}
 	return nil
 }
@@ -96,7 +96,7 @@ func (s *PgCache) PutWitTTL(id string, content []byte, ttl int) error {
                expires_on = EXCLUDED.expires_on`
 	_, err := s.DbPool.Exec(query, id, content)
 	if err != nil {
-		return NewCacheError("failed to cache value", err)
+		return NewErr("failed to cache value", err)
 	}
 	return nil
 }
@@ -116,7 +116,7 @@ func (s *PgCache) Delete(id string) error {
 	query := `DELETE FROM ` + s.CacheTable + ` WHERE id = $1`
 	_, err := s.DbPool.Exec(query, id)
 	if err != nil {
-		return NewCacheError("failed to delete cache entry", err)
+		return NewErr("failed to delete cache entry", err)
 	}
 	return nil
 }
@@ -125,7 +125,7 @@ func (s *PgCache) DeleteExpired() error {
 	query := `DELETE FROM ` + s.CacheTable + ` WHERE expires_on <= NOW()`
 	_, err := s.DbPool.Exec(query)
 	if err != nil {
-		return NewCacheError("failed to delete expired cache entries", err)
+		return NewErr("failed to delete expired cache entries", err)
 	}
 	return nil
 }
@@ -159,7 +159,7 @@ func (s *PgCache) ClearCacheStore() error {
 	query := `TRUNCATE TABLE ` + s.CacheTable
 	_, err := s.DbPool.Exec(query)
 	if err != nil {
-		return NewCacheError("failed to clear cache store", err)
+		return NewErr("failed to clear cache store", err)
 	}
 	return nil
 }
@@ -168,7 +168,7 @@ func (s *PgCache) DropCacheStore() error {
 	query := `DROP TABLE IF EXISTS ` + s.CacheTable
 	_, err := s.DbPool.Exec(query)
 	if err != nil {
-		return NewCacheError("failed to drop cache store", err)
+		return NewErr("failed to drop cache store", err)
 	}
 	return nil
 }
