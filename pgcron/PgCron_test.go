@@ -34,12 +34,15 @@ func TestPgCron(t *testing.T) {
 
 		// Act - Schedule job to produce message every minute
 		log.Print("Scheduling test_job to run every minute")
-		p.Schedule("test_job", "* * * * *",
+		err = p.Schedule("test_job", "* * * * *",
 			`SELECT * from pgmq.send(
 			queue_name  => 'test_queue',
 			msg         => '{"msg":"hello from cron"}',
 			headers     => '{}'
 		)`)
+		if err != nil {
+			t.Fatalf("failed to schedule cron job: %v", err)
+		}
 
 		//wait just over a minute to allow job to run
 		log.Print("Waiting for 70 seconds to allow job to run")
@@ -73,14 +76,21 @@ func TestPgCron(t *testing.T) {
 		initTestQueue(dbPool, t)
 
 		log.Print("Scheduling test_job to run every minute")
-		p.Schedule("test_job", "* * * * *",
+		err = p.Schedule("test_job", "* * * * *",
 			`SELECT * from pgmq.send(
 			queue_name  => 'test_queue',
 			msg         => '{"msg":"hello from cron"}',
 			headers     => '{}'
 		)`)
 
-		p.Pause("test_job")
+		if err != nil {
+			t.Fatalf("failed to schedule cron job: %v", err)
+		}
+
+		err = p.Pause("test_job")
+		if err != nil {
+			t.Fatalf("failed to pause cron job: %v", err)
+		}
 
 		log.Print("Waiting for 70 seconds to allow job to run")
 		time.Sleep(70 * time.Second)
