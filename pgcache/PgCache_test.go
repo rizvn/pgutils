@@ -17,7 +17,7 @@ func TestPgCache(t *testing.T) {
 
 	dbPool, err := sql.Open("pgx", dsn)
 	if err != nil {
-		panic("failed to create pgx pool")
+		t.Fatal("failed to create pgx pool")
 	}
 	dbPool.SetMaxOpenConns(20)
 
@@ -25,7 +25,10 @@ func TestPgCache(t *testing.T) {
 	// 600 seconds TTL (10 minutes) for testing
 	pgCache := pgcache.NewPgCache(dbPool, "c_test", pgcache.WithTTL(600))
 
-	pgCache.CreateCacheTable()
+	err = pgCache.CreateCacheTable()
+	if err != nil {
+		t.Fatalf("failed to create cache table: %v", err)
+	}
 
 	t.Run("Put Value", func(t *testing.T) {
 		// Test Put
@@ -50,7 +53,12 @@ func TestPgCache(t *testing.T) {
 	t.Run("PutWitTTL Value", func(t *testing.T) {
 		testID := "test_key_ttl"
 		testContent := []byte("ttl_value")
-		pgCache.PutWitTTL(testID, testContent, 1) // 1 second TTL
+		err = pgCache.PutWitTTL(testID, testContent, 1) // 1 second TTL
+
+		if err != nil {
+			t.Fatalf("failed to put value with TTL: %v", err)
+		}
+
 		content, found := pgCache.Get(testID)
 		if !found || string(content) != "ttl_value" {
 			t.Errorf("Expected to find key %s with correct value", testID)
@@ -66,7 +74,10 @@ func TestPgCache(t *testing.T) {
 		testID := "delete_key"
 		testContent := []byte("delete_value")
 		pgCache.Put(testID, testContent)
-		pgCache.Delete(testID)
+		err = pgCache.Delete(testID)
+		if err != nil {
+			t.Fatalf("failed to delete key %s: %v", testID, err)
+		}
 		_, found := pgCache.Get(testID)
 		if found {
 			t.Errorf("Expected key %s to be deleted", testID)
@@ -76,9 +87,15 @@ func TestPgCache(t *testing.T) {
 	t.Run("DeleteExpired", func(t *testing.T) {
 		testID := "expired_key"
 		testContent := []byte("expired_value")
-		pgCache.PutWitTTL(testID, testContent, 1)
+		err = pgCache.PutWitTTL(testID, testContent, 1)
+		if err != nil {
+			t.Fatalf("failed to put value with TTL: %v", err)
+		}
 		time.Sleep(5 * time.Second)
-		pgCache.DeleteExpired()
+		err = pgCache.DeleteExpired()
+		if err != nil {
+			t.Fatalf("failed to delete expired keys: %v", err)
+		}
 		_, found := pgCache.Get(testID)
 		if found {
 			t.Errorf("Expected expired key %s to be deleted", testID)
@@ -87,7 +104,10 @@ func TestPgCache(t *testing.T) {
 
 	t.Run("ClearCacheStore", func(t *testing.T) {
 		pgCache.Put("clear_key", []byte("clear_value"))
-		pgCache.ClearCacheStore()
+		err = pgCache.ClearCacheStore()
+		if err != nil {
+			t.Fatalf("failed to clear cache store: %v", err)
+		}
 		_, found := pgCache.Get("clear_key")
 		if found {
 			t.Errorf("Expected cache store to be cleared")
@@ -96,14 +116,16 @@ func TestPgCache(t *testing.T) {
 
 	t.Run("DropCacheStore", func(t *testing.T) {
 		pgCache.Put("drop_key", []byte("drop_value"))
-		pgCache.DropCacheStore()
-		// Table should not exist, so Put should panic
-		defer func() {
-			if r := recover(); r == nil {
-				t.Errorf("Expected panic after dropping cache table")
-			}
-		}()
-		pgCache.Put("drop_key", []byte("drop_value"))
+		err = pgCache.DropCacheStore()
+
+		if err != nil {
+			t.Fatalf("failed to drop cache store: %v", err)
+		}
+
+		err = pgCache.Put("drop_key", []byte("drop_value"))
+		if err == nil {
+			t.Errorf("Expected error when putting value after dropping cache store, but got none")
+		}
 	})
 
 }

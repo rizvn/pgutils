@@ -3,11 +3,32 @@ package pgcache
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"log/slog"
+	"runtime"
 	"strconv"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
+
+type CacheError struct {
+	message string
+}
+
+func (e *CacheError) Error() string {
+	return e.message
+}
+
+func NewCacheError(message string, wrapErr error) *CacheError {
+	// get refenece to caller function
+	pc, _, line, _ := runtime.Caller(1)
+	funcName := runtime.FuncForPC(pc).Name()
+
+	e := &CacheError{}
+	e.message = fmt.Sprintf("\nError at: %s : %d\nMessage:%s\n%v", funcName, line, message, wrapErr)
+	return e
+}
 
 type PgCache struct {
 	DbPool *sql.DB `required:"true"`
@@ -18,7 +39,7 @@ type PgCache struct {
 	cancelCleanerCtx context.CancelFunc
 }
 
-// modifier functions for optional fields
+// CacheMod modifier functions for optional fields
 type CacheMod func(*PgCache)
 
 // WithTTL sets the TTL (time-to-live) for cache entries in seconds. Default is 86400 seconds (1 day).
@@ -43,8 +64,7 @@ func NewPgCache(dbPool *sql.DB, cacheTable string, modifiers ...CacheMod) *PgCac
 	return p
 }
 
-func (s *PgCache) CreateCacheTable() {
-
+func (s *PgCache) CreateCacheTable() error {
 	query := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS ` + s.CacheTable + ` (
 		id TEXT PRIMARY KEY,
@@ -54,15 +74,16 @@ func (s *PgCache) CreateCacheTable() {
 	)`
 	_, err := s.DbPool.Exec(query)
 	if err != nil {
-		panic("failed to create cache store: " + err.Error())
+		return NewCacheError("failed to create cache store", err)
 	}
+	return nil
 }
 
-func (s *PgCache) Put(id string, content []byte) {
-	s.PutWitTTL(id, content, s.TTL)
+func (s *PgCache) Put(id string, content []byte) error {
+	return s.PutWitTTL(id, content, s.TTL)
 }
 
-func (s *PgCache) PutWitTTL(id string, content []byte, ttl int) {
+func (s *PgCache) PutWitTTL(id string, content []byte, ttl int) error {
 
 	// Upsert value with expiration
 	query :=
@@ -75,8 +96,9 @@ func (s *PgCache) PutWitTTL(id string, content []byte, ttl int) {
                expires_on = EXCLUDED.expires_on`
 	_, err := s.DbPool.Exec(query, id, content)
 	if err != nil {
-		panic("failed to cache value: " + err.Error())
+		return NewCacheError("failed to cache value", err)
 	}
+	return nil
 }
 
 func (s *PgCache) Get(id string) ([]byte, bool) {
@@ -90,21 +112,22 @@ func (s *PgCache) Get(id string) ([]byte, bool) {
 	return content, true
 }
 
-func (s *PgCache) Delete(id string) {
-
+func (s *PgCache) Delete(id string) error {
 	query := `DELETE FROM ` + s.CacheTable + ` WHERE id = $1`
 	_, err := s.DbPool.Exec(query, id)
 	if err != nil {
-		panic("failed to delete cache entry: " + err.Error())
+		return NewCacheError("failed to delete cache entry", err)
 	}
+	return nil
 }
 
-func (s *PgCache) DeleteExpired() {
+func (s *PgCache) DeleteExpired() error {
 	query := `DELETE FROM ` + s.CacheTable + ` WHERE expires_on <= NOW()`
 	_, err := s.DbPool.Exec(query)
 	if err != nil {
-		panic("failed to delete expired cache entries: " + err.Error())
+		return NewCacheError("failed to delete expired cache entries", err)
 	}
+	return nil
 }
 
 func (s *PgCache) CleanUp(ctx context.Context, interval int) {
@@ -114,7 +137,10 @@ func (s *PgCache) CleanUp(ctx context.Context, interval int) {
 			return
 		default:
 			time.Sleep(time.Duration(interval) * time.Second)
-			s.DeleteExpired()
+			err := s.DeleteExpired()
+			if err != nil {
+				slog.Error("cache cleanup error", "error", err)
+			}
 		}
 	}
 }
@@ -129,18 +155,20 @@ func (s *PgCache) StopCleaner() {
 	s.cancelCleanerCtx()
 }
 
-func (s *PgCache) ClearCacheStore() {
+func (s *PgCache) ClearCacheStore() error {
 	query := `TRUNCATE TABLE ` + s.CacheTable
 	_, err := s.DbPool.Exec(query)
 	if err != nil {
-		panic("failed to clear cache store: " + err.Error())
+		return NewCacheError("failed to clear cache store", err)
 	}
+	return nil
 }
 
-func (s *PgCache) DropCacheStore() {
+func (s *PgCache) DropCacheStore() error {
 	query := `DROP TABLE IF EXISTS ` + s.CacheTable
 	_, err := s.DbPool.Exec(query)
 	if err != nil {
-		panic("failed to drop cache store: " + err.Error())
+		return NewCacheError("failed to drop cache store", err)
 	}
+	return nil
 }
