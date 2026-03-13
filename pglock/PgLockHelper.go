@@ -6,6 +6,7 @@ import (
 	"hash/fnv"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/rizvn/pgutils/common"
 )
 
 type PgLockHelper struct {
@@ -22,15 +23,15 @@ func NewPgLockHelper(dbPool *sql.DB) *PgLockHelper {
 // hash string to int64 using FNV-1a
 func hashLock(lockName string) int64 {
 	h := fnv.New64a()
-	h.Write([]byte(lockName))
+	_, _ = h.Write([]byte(lockName))
 	return int64(h.Sum64())
 }
 
-func (r *PgLockHelper) Lock(lockName string) *PgLock {
+func (r *PgLockHelper) Lock(lockName string) (*PgLock, error) {
 	// Get a dedicated connection for this lock
 	conn, err := r.DbPool.Conn(context.Background())
 	if err != nil {
-		panic("failed to get dedicated connection for lock: " + err.Error())
+		return nil, common.NewErr("failed to get dedicated connection for lock", err)
 	}
 
 	// Acquire the advisory lock or wait until it's available
@@ -41,5 +42,5 @@ func (r *PgLockHelper) Lock(lockName string) *PgLock {
 		lockId:   hashLock(lockName),
 		conn:     conn,
 	}
-	return pgLock
+	return pgLock, nil
 }

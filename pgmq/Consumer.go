@@ -6,30 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"runtime"
 	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/rizvn/pgutils/common"
 )
-
-type Err struct {
-	message string
-}
-
-func (e *Err) Error() string {
-	return e.message
-}
-
-func NewErr(message string, wrapError error) *Err {
-	pc, _, line, _ := runtime.Caller(1)
-	funcName := runtime.FuncForPC(pc)
-
-	e := &Err{}
-	e.message = fmt.Sprintf("\nError at %s:%d\nMessage:%s\n%v", funcName, line, message, wrapError)
-	return e
-}
 
 type MessageHandlerFunc func(ctx context.Context, msg *PgmqMessage)
 
@@ -114,11 +97,11 @@ func NewConsumer(pool *sql.DB, queueName string, handlerFunc MessageHandlerFunc,
 	// Create queue if not exists
 	err := c.createQueueIfNotExists()
 	if err != nil {
-		var errorType *Err
+		var errorType *common.Err
 		if errors.As(err, &errorType) {
 			return nil, err
 		} else {
-			return nil, NewErr("Unable to create queue", err)
+			return nil, common.NewErr("Unable to create queue", err)
 		}
 	}
 
@@ -131,7 +114,7 @@ func (s *Consumer) createQueueIfNotExists() error {
 	_, err := s.DbPool.Exec(`SELECT * FROM pgmq.create($1)`, s.QueueName)
 
 	if err != nil {
-		return NewErr("failed to create queue", err)
+		return common.NewErr("failed to create queue", err)
 	}
 	return nil
 }
@@ -182,7 +165,7 @@ func (s *Consumer) Start() {
 							return // query was cancelled
 						}
 					}
-					slog.Error("failed to read messages", "error", NewErr("failed to read messages", err))
+					slog.Error("failed to read messages", "error", common.NewErr("failed to read messages", err))
 					return
 				}
 
@@ -192,7 +175,7 @@ func (s *Consumer) Start() {
 				for rows.Next() {
 					err := rows.Scan(&msg.MsgID, &msg.ReadCount, &msg.EnqueuedAt, &msg.VT, &msg.Message, &msg.Headers)
 					if err != nil {
-						slog.Error("failed to scan row", "error", NewErr("Failed to scan row", err))
+						slog.Error("failed to scan row", "error", common.NewErr("Failed to scan row", err))
 						return
 					}
 					s.msgChan <- msg

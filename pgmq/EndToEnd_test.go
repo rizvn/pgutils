@@ -14,7 +14,11 @@ func TestEndToEnd(t *testing.T) {
 	// create context with timeout
 
 	// Start Postgres test container
-	ctr, dsn := testutil.StartPgTestContainer()
+	ctr, dsn, err := testutil.StartPgTestContainer()
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	defer func() { _ = ctr.Terminate(context.Background()) }()
 
 	// Create db pool

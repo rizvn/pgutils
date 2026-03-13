@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/rizvn/pgutils/common"
 )
 
 type PgPool struct {
@@ -26,12 +27,13 @@ type PgPool struct {
 	DSN string
 }
 
-func (s *PgPool) Connect() {
+func (s *PgPool) Connect() error {
 	rows, err := s.DbPool.QueryContext(context.Background(), "SELECT 1")
 	defer func() { _ = rows.Close() }()
 	if err != nil {
-		panic(fmt.Sprintf("failed to connect to database: %v", err))
+		return common.NewErr("failed to connect to database", err)
 	}
+	return nil
 }
 
 func NewPgPool(dbHost, dbPort, dbUser, dbPass, dbName, dbUrlParams string) (*PgPool, error) {

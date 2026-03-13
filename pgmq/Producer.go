@@ -2,7 +2,9 @@ package pgmq
 
 import (
 	"database/sql"
+
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/rizvn/pgutils/common"
 )
 
 type Producer struct {
@@ -28,7 +30,7 @@ func (s *Producer) Produce(queueName, message, headers string) error {
 									)`, queueName, message, headers)
 
 	if err != nil {
-		return NewErr("Failed to send message", err)
+		return common.NewErr("Failed to send message", err)
 	}
 
 	return nil

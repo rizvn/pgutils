@@ -6,11 +6,12 @@ import (
 	"os"
 	"time"
 
+	"github.com/rizvn/pgutils/common"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-func StartPgTestContainer() (testcontainers.Container, string) {
+func StartPgTestContainer() (testcontainers.Container, string, error) {
 	ctx := context.Background()
 
 	// define Postgres container request
@@ -43,18 +44,18 @@ func StartPgTestContainer() (testcontainers.Container, string) {
 	})
 
 	if err != nil {
-		panic(fmt.Sprintf("failed to start postgres container: %v", err))
+		return nil, "", common.NewErr("failed to start postgres container", err)
 	}
 
 	host, err := postgresC.Host(ctx)
 	if err != nil {
-		panic(fmt.Sprintf("failed to get container host: %v", err))
+		return nil, "", common.NewErr("failed to get container host", err)
 	}
 	port, err := postgresC.MappedPort(ctx, "5432")
 	if err != nil {
-		panic(fmt.Sprintf("failed to get mapped port: %v", err))
+		return nil, "", common.NewErr("failed to get mapped port", err)
 	}
 	dsn := fmt.Sprintf("postgres://app_admin:app_admin@%s:%s/app_db", host, port.Port())
 
-	return postgresC, dsn
+	return postgresC, dsn, nil
 }

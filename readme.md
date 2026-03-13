@@ -31,119 +31,92 @@ docker-compose up -d
 ```
 
 See `*_test.go` files for usage examples of each package.
-The standard pattern is: 
+The standard pattern is:
 
 ```go
 import (
-    "github.com/jackc/pgx/v5/pgxpool"
-    
+    "context"
+    "database/sql"
+    "fmt"
+
+    _ "github.com/jackc/pgx/v5/stdlib"
+
     // for pgcache
     "github.com/rizvn/pgutils/pgcache"
-    
+
     // for pgcron
     "github.com/rizvn/pgutils/pgcron"
-    
+
     // for pgmq consumer and producer
     "github.com/rizvn/pgutils/pgmq"
-    
+
     // for pglock
     "github.com/rizvn/pgutils/pglock"
 )
 
 // Create db pool
-dbPool, err := sql.Open("pgx", "postgres://user:password@localhost:5432/dbname")
+// DSN example: postgres://user:password@localhost:5432/dbname?sslmode=disable
+dbPool, err := sql.Open("pgx", dsn)
 if err != nil {
-    panic(fmt.Sprintf("failed to create db p pool pool %v", err)
+    panic(fmt.Sprintf("failed to create db pool: %v", err))
 }
 dbPool.SetMaxOpenConns(20)
 
-
-    
 //------ PgCache Example ------//
-// Create instance
-pgCache := &pgcache.PgCache{
-    DbPool:    dbPool,
-    CacheTable: "cache_table",
-    TTL:       600, // 10 minutes
-    StartCleanup: true
-}
+pgCache := pgcache.NewPgCache(dbPool, "cache_table", pgcache.WithTTL(600))
 
 /* Create cache table SQL
 CREATE UNLOGGED TABLE IF NOT EXISTS cache_table (
-		id TEXT PRIMARY KEY,
-        content BYTEA NOT NULL,
-		created_on TIMESTAMPTZ NOT NULL,
-		expires_on TIMESTAMPTZ NOT NULL
+    id TEXT PRIMARY KEY,
+    content BYTEA NOT NULL,
+    created_on TIMESTAMPTZ NOT NULL,
+    expires_on TIMESTAMPTZ NOT NULL
 );
 */
 
+if err := pgCache.CreateCacheTable(); err != nil {
+    panic(err)
+}
 
-// Init instance
-pgCache.Init(dbPool)
-
-// Use instance
-pgCache.Put(...) 
-
+if err := pgCache.Put("cache-key", []byte("value")); err != nil {
+    panic(err)
+}
 
 //------ PgCron Example ------//
-// Create instance
-cr := &pgcron.PgCron{
-    DbPool:    dbPool
+cron := pgcron.NewPgCron(dbPool)
+
+if err := cron.Schedule("my_job", "*/5 * * * *", "INSERT INTO public.my_table (data) VALUES ('Hello, World!')"); err != nil {
+    panic(err)
 }
 
-
-// Init pgcron instance
-cr.Init()
-
-// Schedule a job
-cr.Schedule("my_job", */5 * * * *", "INSERT INTO public.my_table (data) VALUES ('Hello, World!')")
-
-
-//------ Pgmq consumer Example ------//
-
-// create consumer
-consumer := &Consumer{
-    DbPool:   dbPool,
-    QueueName: "test_queue", // will be created if not exists
+//------ Pgmq Consumer/Producer Example ------//
+consumer, err := pgmq.NewConsumer(
+    dbPool,
+    "test_queue", // will be created if not exists
+    func(ctx context.Context, msg *pgmq.PgmqMessage) {
+        // ... process message ...
+    },
+)
+if err != nil {
+    panic(err)
 }
 
-// message handler runs when a message is received
-consumer.MessageHandler = func(ctx context.Context, msg *PgmqMessage) {
-    //... code to process message ...
-}
-
-
-// Init consumer
-consumer.Init()
 consumer.Start()
+defer consumer.ShutdownWithWait()
 
-
-// create producer
-producer := &Producer{
-    DbPool: dbPool,
+producer := pgmq.NewProducer(dbPool)
+if err := producer.Produce("test_queue", `{"content":"Hello, Test!"}`, "{}"); err != nil {
+    panic(err)
 }
-
-// init producer
-producer.Init()
-
-// send message
-producer.Produce("test_queue", `{"content": "Hello, Test!"}`, "{}")
-
 
 //------ PgLock for distributed locking ------//
+pgLockHelper := pglock.NewPgLockHelper(dbPool)
 
-// Create PgLocks instance
-pgLocks := &pglock.PgLocks{
-    DbPool: dbPool,
+lock, err := pgLockHelper.Lock("test-lock")
+if err != nil {
+    panic(err)
 }
-
-
-// Acquire lock or wait until available
-lock := pgLocks.Lock("test-lock")
-
-// release lock
-lock.Unlock()
-
+defer lock.Unlock()
 ```
 
 ## Running Tests
@@ -152,6 +125,5 @@ Ensure you have Docker running on your machine.
 To run the tests, execute:
 
 ```bash
-go test -tags=test ./...
+go test ./...
 ```
-
