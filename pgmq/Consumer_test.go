@@ -28,7 +28,7 @@ func TestConsumer(t *testing.T) {
 	// create consumer
 	var recvd *pgmq.PgmqMessage = nil
 
-	c := pgmq.NewConsumer(dbPool, "test_queue",
+	c, err := pgmq.NewConsumer(dbPool, "test_queue",
 		// message handler runs when a message is received
 		func(ctx context.Context, msg *pgmq.PgmqMessage) {
 			// capture received message
@@ -37,6 +37,10 @@ func TestConsumer(t *testing.T) {
 			// cancel context to end test
 			cancel()
 		})
+
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	c.Start()
 

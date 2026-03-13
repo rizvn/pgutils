@@ -20,7 +20,7 @@ func TestPgCron(t *testing.T) {
 	// Create db pool
 	dbPool, err := sql.Open("pgx", dsn)
 	if err != nil {
-		panic(fmt.Sprintf("failed to create pgx pool, err: %v", err))
+		t.Fatal(fmt.Sprintf("failed to create pgx pool, err: %v", err))
 	}
 	dbPool.SetMaxOpenConns(20)
 

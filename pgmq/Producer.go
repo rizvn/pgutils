@@ -2,8 +2,6 @@ package pgmq
 
 import (
 	"database/sql"
-	"fmt"
-
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -18,7 +16,7 @@ func NewProducer(pool *sql.DB) *Producer {
 	return s
 }
 
-func (s *Producer) Produce(queueName, message, headers string) {
+func (s *Producer) Produce(queueName, message, headers string) error {
 	if headers == "" {
 		headers = "{}"
 	}
@@ -30,6 +28,8 @@ func (s *Producer) Produce(queueName, message, headers string) {
 									)`, queueName, message, headers)
 
 	if err != nil {
-		panic(fmt.Sprintf("failed to send message, %s", err.Error()))
+		return NewErr("Failed to send message", err)
 	}
+
+	return nil
 }

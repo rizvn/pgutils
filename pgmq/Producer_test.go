@@ -39,7 +39,10 @@ func TestProducer(t *testing.T) {
 	p := pgmq.NewProducer(dbPool)
 
 	// Produce a message
-	p.Produce("test_queue", `{"content": "Hello, World!"}`, "{}")
+	err = p.Produce("test_queue", `{"content": "Hello, World!"}`, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Assert - check if message was produced in pgmq table
 	row, err := dbPool.Query(`SELECT count(0) FROM pgmq.q_test_queue`)

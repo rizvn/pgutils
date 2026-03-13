@@ -38,7 +38,11 @@ func TestEndToEnd(t *testing.T) {
 
 	}
 
-	c := pgmq.NewConsumer(dbPool, "test_queue", handler, pgmq.WithExponentialBackoff(1))
+	c, err := pgmq.NewConsumer(dbPool, "test_queue", handler, pgmq.WithExponentialBackoff(1))
+
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	c.Start()
 

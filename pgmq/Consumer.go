@@ -6,12 +6,30 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"runtime"
 	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
+
+type Err struct {
+	message string
+}
+
+func (e *Err) Error() string {
+	return e.message
+}
+
+func NewErr(message string, wrapError error) *Err {
+	pc, _, line, _ := runtime.Caller(1)
+	funcName := runtime.FuncForPC(pc)
+
+	e := &Err{}
+	e.message = fmt.Sprintf("\nError at %s:%d\nMessage:%s\n%v", funcName, line, message, wrapError)
+	return e
+}
 
 type MessageHandlerFunc func(ctx context.Context, msg *PgmqMessage)
 
@@ -73,7 +91,7 @@ func WithExponentialBackoff(secs int) ConsumerModifier {
 	}
 }
 
-func NewConsumer(pool *sql.DB, queueName string, handlerFunc MessageHandlerFunc, mods ...ConsumerModifier) *Consumer {
+func NewConsumer(pool *sql.DB, queueName string, handlerFunc MessageHandlerFunc, mods ...ConsumerModifier) (*Consumer, error) {
 	c := &Consumer{
 		DbPool:                  pool,
 		QueueName:               queueName,
@@ -94,19 +112,28 @@ func NewConsumer(pool *sql.DB, queueName string, handlerFunc MessageHandlerFunc,
 	c.sleepSecs = c.PollingInterval
 
 	// Create queue if not exists
-	c.createQueueIfNotExists()
+	err := c.createQueueIfNotExists()
+	if err != nil {
+		var errorType *Err
+		if errors.As(err, &errorType) {
+			return nil, err
+		} else {
+			return nil, NewErr("Unable to create queue", err)
+		}
+	}
 
 	c.routinesInflight = sync.WaitGroup{}
 	c.msgChan = make(chan *PgmqMessage, c.ConcurrentMsgs)
-	return c
+	return c, nil
 }
 
-func (s *Consumer) createQueueIfNotExists() {
+func (s *Consumer) createQueueIfNotExists() error {
 	_, err := s.DbPool.Exec(`SELECT * FROM pgmq.create($1)`, s.QueueName)
 
 	if err != nil {
-		panic(fmt.Sprintf("failed to create queue, err: %v", err))
+		return NewErr("failed to create queue", err)
 	}
+	return nil
 }
 
 func (s *Consumer) ShutdownWithWait() {
@@ -155,7 +182,8 @@ func (s *Consumer) Start() {
 							return // query was cancelled
 						}
 					}
-					panic(fmt.Sprintf("failed to read messages, %v", err))
+					slog.Error("failed to read messages", "error", NewErr("failed to read messages", err))
+					return
 				}
 
 				msgCount := 0
@@ -164,7 +192,8 @@ func (s *Consumer) Start() {
 				for rows.Next() {
 					err := rows.Scan(&msg.MsgID, &msg.ReadCount, &msg.EnqueuedAt, &msg.VT, &msg.Message, &msg.Headers)
 					if err != nil {
-						panic(fmt.Sprintf("failed to scan row, err: %v", err))
+						slog.Error("failed to scan row", "error", NewErr("Failed to scan row", err))
+						return
 					}
 					s.msgChan <- msg
 					msgCount++
@@ -172,6 +201,7 @@ func (s *Consumer) Start() {
 				err = rows.Close()
 				if err != nil {
 					slog.Error(fmt.Sprintf("failed to close rows: %v\n", err.Error()))
+					return
 				}
 
 				// if no messages found
