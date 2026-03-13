@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
@@ -32,7 +33,10 @@ func TestPgLock(t *testing.T) {
 	pgLockHelper := pglock.NewPgLockHelper(dbPool)
 
 	t.Run("Lock and unlock", func(t *testing.T) {
-		lock := pgLockHelper.Lock("test-lock")
+		lock, err := pgLockHelper.Lock("test-lock")
+		if err != nil {
+			t.Fatal(err)
+		}
 		lock.Unlock()
 	})
 
@@ -45,7 +49,12 @@ func TestPgLock(t *testing.T) {
 		go func() {
 			id := 1
 			fmt.Println("Goroutine 1 trying to acquire lock")
-			lock := pgLockHelper.Lock("test-lock")
+			lock, err := pgLockHelper.Lock("test-lock")
+			if err != nil {
+				slog.Error("", "error", err)
+				return
+			}
+
 			routineId = id
 
 			fmt.Println("Acquired lock 1")
@@ -69,7 +78,11 @@ func TestPgLock(t *testing.T) {
 		go func() {
 			id := 2
 			fmt.Println("Goroutine 2 trying to acquire lock")
-			lock := pgLockHelper.Lock("test-lock")
+			lock, err := pgLockHelper.Lock("test-lock")
+			if err != nil {
+				slog.Error("", "error", err)
+				return
+			}
 			routineId = id
 
 			fmt.Println("Acquired lock 2")
@@ -92,7 +105,12 @@ func TestPgLock(t *testing.T) {
 		go func() {
 			id := 3
 			fmt.Println("Goroutine 3 trying to acquire lock")
-			lock := pgLockHelper.Lock("test-lock")
+			lock, err := pgLockHelper.Lock("test-lock")
+			if err != nil {
+				slog.Error("", "error", err)
+				return
+			}
+
 			routineId = id
 
 			fmt.Println("Acquired lock 3")
