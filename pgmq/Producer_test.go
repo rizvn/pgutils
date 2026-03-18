@@ -5,8 +5,8 @@ import (
 	"database/sql"
 	"testing"
 
-	"github.com/rizvn/pgutils/pgmq"
-	"github.com/rizvn/pgutils/testutil"
+	"github.com/rizvn/pgutil/pgmq"
+	"github.com/rizvn/pgutil/testutil"
 )
 
 func TestProducer(t *testing.T) {

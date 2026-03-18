@@ -13,11 +13,12 @@ func (e *Err) Error() string {
 	return e.message
 }
 
-func NewErr(message string, wrapError error) error {
+func NewErr(message string, wrapErr error) *Err {
+	// get refenece to caller function
 	pc, _, line, _ := runtime.Caller(1)
-	funcName := runtime.FuncForPC(pc)
+	funcName := runtime.FuncForPC(pc).Name()
 
 	e := &Err{}
-	e.message = fmt.Sprintf("\nError at %s:%d\nMessage:%s\n%v", funcName, line, message, wrapError)
+	e.message = fmt.Sprintf("\nError at: %s : %d\nMessage:%s\n%v", funcName, line, message, wrapErr)
 	return e
 }

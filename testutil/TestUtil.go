@@ -6,7 +6,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/rizvn/pgutils/common"
+	"github.com/rizvn/pgutil/common"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )

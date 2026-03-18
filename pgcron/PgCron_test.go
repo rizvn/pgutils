@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rizvn/pgutils/pgcron"
-	"github.com/rizvn/pgutils/testutil"
+	"github.com/rizvn/pgutil/pgcron"
+	"github.com/rizvn/pgutil/testutil"
 )
 
 func TestPgCron(t *testing.T) {

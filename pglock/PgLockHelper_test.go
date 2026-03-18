@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rizvn/pgutils/pglock"
-	"github.com/rizvn/pgutils/testutil"
+	"github.com/rizvn/pgutil/pglock"
+	"github.com/rizvn/pgutil/testutil"
 )
 
 func TestPgLock(t *testing.T) {

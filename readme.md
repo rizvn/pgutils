@@ -10,7 +10,7 @@ Set of utilities to work with advanced features of postgresql.
 Ensure you have the required extensions installed in your PostgreSQL database:
 
 ```go
-go get github.com/rizvn/pgutils
+go get github.com/rizvn/pgutil
 ```
 
 
@@ -42,16 +42,16 @@ import (
     _ "github.com/jackc/pgx/v5/stdlib"
 
     // for pgcache
-    "github.com/rizvn/pgutils/pgcache"
+    "github.com/rizvn/pgutil/pgcache"
 
     // for pgcron
-    "github.com/rizvn/pgutils/pgcron"
+    "github.com/rizvn/pgutil/pgcron"
 
     // for pgmq consumer and producer
-    "github.com/rizvn/pgutils/pgmq"
+    "github.com/rizvn/pgutil/pgmq"
 
     // for pglock
-    "github.com/rizvn/pgutils/pglock"
+    "github.com/rizvn/pgutil/pglock"
 )
 
 // Create db pool

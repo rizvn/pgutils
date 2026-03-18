@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rizvn/pgutils/pgmq"
-	"github.com/rizvn/pgutils/testutil"
+	"github.com/rizvn/pgutil/pgmq"
+	"github.com/rizvn/pgutil/testutil"
 )
 
 func TestConsumer(t *testing.T) {

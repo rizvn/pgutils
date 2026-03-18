@@ -1,4 +1,4 @@
-module github.com/rizvn/pgutils
+module github.com/rizvn/pgutil
 
 go 1.24.2
 

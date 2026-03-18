@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/rizvn/pgutils/pgpool"
-	"github.com/rizvn/pgutils/testutil"
+	"github.com/rizvn/pgutil/pgpool"
+	"github.com/rizvn/pgutil/testutil"
 )
 
 func TestPgPoolConnection(t *testing.T) {

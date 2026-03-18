@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rizvn/pgutils/pgcache"
-	"github.com/rizvn/pgutils/testutil"
+	"github.com/rizvn/pgutil/pgcache"
+	"github.com/rizvn/pgutil/testutil"
 )
 
 func TestPgCache(t *testing.T) {
