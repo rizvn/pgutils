@@ -28,8 +28,7 @@ type PgPool struct {
 }
 
 func (s *PgPool) Connect() error {
-	rows, err := s.DbPool.QueryContext(context.Background(), "SELECT 1")
-	defer func() { _ = rows.Close() }()
+	_, err := s.DbPool.QueryContext(context.Background(), "SELECT 1")
 	if err != nil {
 		return common.NewErr("failed to connect to database", err)
 	}
